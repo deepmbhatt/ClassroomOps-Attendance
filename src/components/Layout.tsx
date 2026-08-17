@@ -16,7 +16,6 @@ import {
 } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../auth'
-import type { Role } from '../types'
 
 const adminLinks = [
   ['/', 'Dashboard', Gauge],
@@ -47,7 +46,6 @@ export function AppShell() {
             <small>Facial attendance console</small>
           </div>
         </div>
-        <RoleSwitch role={auth.role} setRole={auth.setRole} />
         <nav aria-label="Primary">
           {links.map(([to, label, Icon]) => (
             <NavLink key={to} to={to} end={to === '/'}>
@@ -72,19 +70,6 @@ export function AppShell() {
         </header>
         <Outlet />
       </main>
-    </div>
-  )
-}
-
-function RoleSwitch({ role, setRole }: { role: Role; setRole(role: Role): void }) {
-  return (
-    <div className="role-switch" aria-label="Demo role switch">
-      <button className={role === 'admin' ? 'active' : ''} onClick={() => setRole('admin')}>
-        Admin
-      </button>
-      <button className={role === 'student' ? 'active' : ''} onClick={() => setRole('student')}>
-        Student
-      </button>
     </div>
   )
 }

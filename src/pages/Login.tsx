@@ -22,7 +22,6 @@ export function Login() {
           studentId: String(form.get('studentId')),
           phone: String(form.get('phone')),
         })
-        auth.setRole('student')
       } else {
         await auth.signIn(String(form.get('email')), String(form.get('password')))
       }

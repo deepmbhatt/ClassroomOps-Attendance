@@ -287,8 +287,8 @@ alter table public.audit_logs enable row level security;
 
 create policy "own profile or admin" on public.profiles for select using (id = auth.uid() or public.is_admin());
 create policy "admin writes profiles" on public.profiles for all using (public.is_admin()) with check (public.is_admin());
-create policy "student creates own profile" on public.profiles for insert with check (id = auth.uid());
-create policy "student updates own consent" on public.profiles for update using (id = auth.uid()) with check (id = auth.uid());
+create policy "student creates own profile" on public.profiles for insert with check (id = auth.uid() and role = 'student');
+create policy "student updates own profile" on public.profiles for update using (id = auth.uid() and role = 'student') with check (id = auth.uid() and role = 'student');
 
 create policy "course read for members and admins" on public.courses for select using (
   public.is_admin() or exists (

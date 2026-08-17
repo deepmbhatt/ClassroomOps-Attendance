@@ -5,7 +5,7 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react'
-import type { Session } from '@supabase/supabase-js'
+import type { Session, User } from '@supabase/supabase-js'
 import type { Role } from './types'
 import { devBypass, supabase } from './lib/supabase'
 
@@ -13,7 +13,6 @@ interface AuthValue {
   ready: boolean
   session: Session | null
   role: Role
-  setRole(role: Role): void
   signedIn: boolean
   signIn(email: string, password: string): Promise<void>
   signUp(input: { email: string; password: string; fullName: string; studentId: string; phone: string }): Promise<void>
@@ -24,19 +23,42 @@ const AuthContext = createContext<AuthValue | null>(null)
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<Session | null>(null)
-  const [role, setRole] = useState<Role>('admin')
+  const [role, setRole] = useState<Role>(devBypass ? 'admin' : 'student')
   const [ready, setReady] = useState(devBypass)
+
+  async function loadRoleForUser(user: User | null) {
+    if (devBypass || !supabase || !user) {
+      setRole(devBypass ? 'admin' : 'student')
+      return
+    }
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (error) throw error
+    setRole(data?.role === 'admin' ? 'admin' : 'student')
+  }
 
   useEffect(() => {
     if (devBypass || !supabase) return
-    void supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session)
-      setReady(true)
-    })
+
+    void supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        setSession(data.session)
+        return loadRoleForUser(data.session?.user ?? null)
+      })
+      .finally(() => setReady(true))
+
     const { data } = supabase.auth.onAuthStateChange((_event, next) => {
       setSession(next)
-      setReady(true)
+      setReady(false)
+      void loadRoleForUser(next?.user ?? null).finally(() => setReady(true))
     })
+
     return () => data.subscription.unsubscribe()
   }, [])
 
@@ -44,7 +66,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
     ready,
     session,
     role,
-    setRole,
     signedIn: devBypass || Boolean(session),
     async signIn(email, password) {
       if (devBypass) return
@@ -52,6 +73,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error
       setSession(data.session)
+      await loadRoleForUser(data.session?.user ?? null)
     },
     async signUp(input) {
       if (devBypass) {
@@ -71,10 +93,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
         },
       })
       if (error) throw error
+      setRole('student')
     },
     async signOut() {
       if (supabase && !devBypass) await supabase.auth.signOut()
       setSession(null)
+      setRole(devBypass ? 'admin' : 'student')
     },
   }
 

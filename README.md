@@ -18,11 +18,13 @@ Open:
 http://localhost:5174/
 ```
 
-By default, `.env.example` uses demo mode. Demo mode does not need Supabase.
+For local demo mode without Supabase, set this in `.env`:
 
 ```bash
 VITE_DEV_AUTH_BYPASS=true
 ```
+
+Production must keep `VITE_DEV_AUTH_BYPASS=false` or omit it. Demo mode is opt-in only.
 
 ## 2. Push To GitHub
 
@@ -74,6 +76,8 @@ update public.profiles
 set role = 'admin'
 where email = 'your-admin-email@example.com';
 ```
+
+All app signups are forced to `student`. Only promote admins from Supabase SQL after you have verified the user.
 
 If no profile row exists yet, get the user id from `Authentication > Users`, then insert:
 
