@@ -1,0 +1,1052 @@
+From f5a413d367408ccf26b1f4edaa1c80d561bb0f5d Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.local>
+Date: Mon, 17 Aug 2026 13:18:59 +0530
+Subject: [PATCH 1/2] Add Vercel setup and student academics dashboard
+
+---
+ README.md                                     | 173 +++++++++++++++++-
+ package.json                                  |   3 +-
+ playwright.config.ts                          |   6 +-
+ public/classroomops-logo.svg                  |   9 +
+ src/components/Layout.tsx                     |   2 +-
+ src/lib/api.ts                                |  34 +++-
+ src/lib/demoData.ts                           |  54 +++++-
+ src/lib/importValidation.ts                   |   8 +-
+ src/pages/Dashboard.tsx                       |  82 ++++++---
+ src/pages/MarksImports.tsx                    | 132 +++++++++----
+ src/styles.css                                |  22 +++
+ src/types.ts                                  |  22 +++
+ .../202608170001_initial_platform.sql         |  42 +++++
+ vercel.json                                   |   5 +
+ 14 files changed, 507 insertions(+), 87 deletions(-)
+ create mode 100644 public/classroomops-logo.svg
+ create mode 100644 vercel.json
+
+diff --git a/README.md b/README.md
+index 52eaec6..4e56eaa 100644
+--- a/README.md
++++ b/README.md
+@@ -1,22 +1,175 @@
+-# Classroom Attendance Platform
++# ClassroomOps Attendance Platform
+ 
+-Responsive classroom management and facial-attendance web app.
++Responsive classroom management and facial-attendance web app with Supabase-ready auth, database, storage, RLS, biometric enrollment, attendance, marks, imports, issues, and audit workflows.
+ 
+-## Quick Start
++## 1. Check Locally First
+ 
+ ```bash
+ cd classroom-attendance-platform
+ npm install
++npm run test
++npm run build
++npm run dev
++```
++
++Open:
++
++```text
++http://localhost:5174/
++```
++
++By default, `.env.example` uses demo mode. Demo mode does not need Supabase.
++
++```bash
++VITE_DEV_AUTH_BYPASS=true
++```
++
++## 2. Push To GitHub
++
++Create a new GitHub repository, then run:
++
++```bash
++cd classroom-attendance-platform
++git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO.git
++git push -u origin main
++```
++
++Confirm GitHub contains:
++
++- `package.json`
++- `src/`
++- `public/classroomops-logo.svg`
++- `supabase/migrations/202608170001_initial_platform.sql`
++- `vercel.json`
++- `.env.example`
++
++## 3. Supabase Backend Setup
++
++1. Create a new Supabase project.
++2. Open `SQL Editor`.
++3. Copy and run the full SQL from:
++
++```text
++supabase/migrations/202608170001_initial_platform.sql
++```
++
++4. Go to `Authentication > Providers` and enable `Email`.
++5. Go to `Authentication > URL Configuration` and add redirect URLs:
++
++```text
++http://localhost:5174
++https://YOUR_VERCEL_DOMAIN.vercel.app
++```
++
++6. Go to `Storage` and confirm bucket `face-frames` exists and is private.
++7. Keep Row Level Security enabled. The migration creates the required policies.
++
++## 4. First Admin User
++
++1. Sign up once through the app using your real admin email.
++2. In Supabase SQL Editor, run:
++
++```sql
++update public.profiles
++set role = 'admin'
++where email = 'your-admin-email@example.com';
++```
++
++If no profile row exists yet, get the user id from `Authentication > Users`, then insert:
++
++```sql
++insert into public.profiles (id, role, full_name, email)
++values ('AUTH_USER_UUID_HERE', 'admin', 'Admin User', 'your-admin-email@example.com');
++```
++
++## 5. Frontend Environment Variables
++
++For local Supabase mode, create `.env`:
++
++```bash
+ cp .env.example .env
++```
++
++Set:
++
++```bash
++VITE_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
++VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
++VITE_DEV_AUTH_BYPASS=false
++VITE_FACE_EMBEDDING_MODEL=/models/face-embedding.onnx
++```
++
++Find values in Supabase:
++
++- `Project Settings > API > Project URL`
++- `Project Settings > API > anon public key`
++
++Restart after changing env vars:
++
++```bash
+ npm run dev
+ ```
+ 
+-With `VITE_DEV_AUTH_BYPASS=true`, the app runs with seeded demo data and role switching. For production, create a fresh Supabase project, run the SQL in `supabase/migrations`, create the private `face-frames` bucket, and set `VITE_DEV_AUTH_BYPASS=false`.
++## 6. Vercel Frontend Deployment
++
++1. Go to Vercel.
++2. Click `Add New > Project`.
++3. Import your GitHub repo.
++4. Configure:
++
++```text
++Framework Preset: Vite
++Root Directory: classroom-attendance-platform
++Build Command: npm run build
++Output Directory: dist
++Install Command: npm install
++```
++
++If your GitHub repo root is already `classroom-attendance-platform`, leave Root Directory as project root.
++
++5. Add Environment Variables in Vercel:
++
++```text
++VITE_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
++VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
++VITE_DEV_AUTH_BYPASS=false
++VITE_FACE_EMBEDDING_MODEL=/models/face-embedding.onnx
++```
++
++6. Deploy.
++7. Copy the deployed Vercel URL.
++8. Add that URL in Supabase `Authentication > URL Configuration`.
++9. Test signup/login on the deployed URL.
++
++`vercel.json` is included so browser refreshes on routes like `/admin/marks` and `/student/face` work correctly.
++
++## 7. Marks Excel Format
++
++Recommended CSV/Excel headers:
++
++```text
++Student ID,Insem 1,Insem 2,End Sem,Total,Lab Marks,Challenges,Project
++```
++
++The admin marks page lets you edit the visible table columns. The backend supports configurable columns through:
++
++- `mark_components`
++- `mark_component_scores`
++
++## 8. Logo
++
++The logo is here:
++
++```text
++public/classroomops-logo.svg
++```
++
++Use it for Vercel/project branding, favicon conversion, README previews, or college submission documents.
+ 
+-## Architecture
++## 9. Production Notes
+ 
+-- Supabase Auth and Postgres are the source of truth.
+-- Students upload selected face frames only after explicit consent.
+-- Admin pages perform biometric enrollment and attendance recognition locally in the browser.
+-- Browser ML uses MediaPipe for face detection and ONNX Runtime Web for embeddings, defaulting to CPU/WASM with optional WebGPU on admin devices.
+-- V1 is online-only. The attendance terminal blocks marking when offline.
++- Student pages show available lectures/labs first, grouped by day, then published marks.
++- Admin pages handle CPU/WebGPU biometric processing.
++- Students do not generate embeddings or run attendance recognition.
++- Attendance is online-only in v1.
++- Supabase is the persistent source of truth.
+diff --git a/package.json b/package.json
+index 5fd89fa..149686f 100644
+--- a/package.json
++++ b/package.json
+@@ -8,7 +8,8 @@
+     "build": "tsc -b && vite build",
+     "lint": "eslint .",
+     "test": "vitest run",
+-    "e2e": "playwright test"
++    "e2e": "playwright test",
++    "preview": "vite preview --host 0.0.0.0 --port 4174"
+   },
+   "dependencies": {
+     "@mediapipe/tasks-vision": "^0.10.18",
+diff --git a/playwright.config.ts b/playwright.config.ts
+index 511a6b7..d31b6dc 100644
+--- a/playwright.config.ts
++++ b/playwright.config.ts
+@@ -3,11 +3,11 @@ import { defineConfig, devices } from '@playwright/test'
+ export default defineConfig({
+   testDir: './src/tests/e2e',
+   webServer: {
+-    command: 'npm run dev',
+-    url: 'http://127.0.0.1:5174',
++    command: 'npm run preview',
++    url: 'http://127.0.0.1:4174',
+     reuseExistingServer: true,
+   },
+-  use: { baseURL: 'http://127.0.0.1:5174' },
++  use: { baseURL: 'http://127.0.0.1:4174' },
+   projects: [
+     { name: 'desktop', use: { ...devices['Desktop Chrome'] } },
+     { name: 'mobile', use: { ...devices['Pixel 5'] } },
+diff --git a/public/classroomops-logo.svg b/public/classroomops-logo.svg
+new file mode 100644
+index 0000000..ca2b45b
+--- /dev/null
++++ b/public/classroomops-logo.svg
+@@ -0,0 +1,9 @@
++<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
++  <rect width="512" height="512" rx="96" fill="#101820"/>
++  <path d="M112 163C112 136.49 133.49 115 160 115H352C378.51 115 400 136.49 400 163V349C400 375.51 378.51 397 352 397H160C133.49 397 112 375.51 112 349V163Z" fill="#F7FAFC"/>
++  <path d="M157 184C157 169.088 169.088 157 184 157H328C342.912 157 355 169.088 355 184V328C355 342.912 342.912 355 328 355H184C169.088 355 157 342.912 157 328V184Z" fill="#2364AA"/>
++  <path d="M205 252C205 223.833 227.833 201 256 201C284.167 201 307 223.833 307 252C307 280.167 284.167 303 256 303C227.833 303 205 280.167 205 252Z" fill="#F7FAFC"/>
++  <path d="M178 333C187.871 306.712 217.535 288 256 288C294.465 288 324.129 306.712 334 333" stroke="#F7FAFC" stroke-width="30" stroke-linecap="round"/>
++  <path d="M164 112L256 62L348 112" stroke="#2F855A" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M190 399H322" stroke="#2F855A" stroke-width="34" stroke-linecap="round"/>
++</svg>
+diff --git a/src/components/Layout.tsx b/src/components/Layout.tsx
+index 5824ff1..6191f0d 100644
+--- a/src/components/Layout.tsx
++++ b/src/components/Layout.tsx
+@@ -41,7 +41,7 @@ export function AppShell() {
+     <div className="app-shell">
+       <aside className="sidebar">
+         <div className="brand">
+-          <span className="brand-mark"><BookOpen size={19} /></span>
++          <span className="brand-mark"><img src="/classroomops-logo.svg" alt="" /></span>
+           <div>
+             <strong>ClassroomOps</strong>
+             <small>Facial attendance console</small>
+diff --git a/src/lib/api.ts b/src/lib/api.ts
+index 66a22b5..14d693d 100644
+--- a/src/lib/api.ts
++++ b/src/lib/api.ts
+@@ -8,6 +8,8 @@ import type {
+   FaceEnrollment,
+   LectureSession,
+   Mark,
++  MarkBreakdown,
++  MarkComponent,
+   Profile,
+   StudentIssue,
+ } from '../types'
+@@ -21,6 +23,8 @@ import {
+   demoEnrollments,
+   demoLectures,
+   demoMarks,
++  demoMarkBreakdowns,
++  demoMarkComponents,
+   demoProfiles,
+   demoIssues,
+ } from './demoData'
+@@ -35,6 +39,8 @@ export interface AppData {
+   attendance: AttendanceRecord[]
+   assessments: Assessment[]
+   marks: Mark[]
++  markComponents: MarkComponent[]
++  markBreakdowns: MarkBreakdown[]
+   issues: StudentIssue[]
+   announcements: Announcement[]
+   auditLogs: AuditLog[]
+@@ -53,6 +59,8 @@ export async function loadAppData(): Promise<AppData> {
+     attendance,
+     assessments,
+     marks,
++    markComponents,
++    markComponentScores,
+     issues,
+     announcements,
+     auditLogs,
+@@ -65,15 +73,35 @@ export async function loadAppData(): Promise<AppData> {
+     supabase.from('attendance_records').select('*, profiles(full_name)'),
+     supabase.from('assessments').select('*, courses(code)'),
+     supabase.from('marks').select('*, profiles(full_name)'),
++    supabase.from('mark_components').select('*, courses(code)').order('position'),
++    supabase.from('mark_component_scores').select('*, mark_components(course_id, key, courses(code)), profiles(full_name)'),
+     supabase.from('student_issues').select('*, profiles(full_name)'),
+     supabase.from('announcements').select('*, courses(code)'),
+     supabase.from('audit_logs').select('*, profiles(full_name)').order('created_at', { ascending: false }).limit(100),
+   ])
+ 
+-  for (const result of [profiles, courses, enrollments, embeddings, lectures, attendance, assessments, marks, issues, announcements, auditLogs]) {
++  for (const result of [profiles, courses, enrollments, embeddings, lectures, attendance, assessments, marks, markComponents, markComponentScores, issues, announcements, auditLogs]) {
+     if (result.error) throw result.error
+   }
+ 
++  const componentScoresByStudentCourse = new Map<string, any>()
++  for (const score of markComponentScores.data ?? []) {
++    const courseId = score.mark_components?.course_id ?? 'course'
++    const key = score.student_id + ':' + courseId
++    const existing = componentScoresByStudentCourse.get(key) ?? {
++      id: key,
++      student_id: score.student_id,
++      student_name: score.profiles?.full_name ?? 'Student',
++      course_id: courseId,
++      course_code: score.mark_components?.courses?.code ?? 'Course',
++      published: Boolean(score.published),
++      scores: {},
++    }
++    existing.published = existing.published || Boolean(score.published)
++    existing.scores[score.mark_components?.key ?? score.component_id] = Number(score.value)
++    componentScoresByStudentCourse.set(key, existing)
++  }
++
+   return {
+     profiles: profiles.data as Profile[],
+     courses: (courses.data ?? []).map((course: any) => ({ ...course, enrolled_count: course.course_memberships?.[0]?.count ?? 0 })),
+@@ -87,6 +115,8 @@ export async function loadAppData(): Promise<AppData> {
+     attendance: (attendance.data ?? []).map((record: any) => ({ ...record, student_name: record.profiles?.full_name ?? 'Student' })),
+     assessments: (assessments.data ?? []).map((assessment: any) => ({ ...assessment, course_code: assessment.courses?.code ?? 'Course' })),
+     marks: (marks.data ?? []).map((mark: any) => ({ ...mark, student_name: mark.profiles?.full_name ?? 'Student' })),
++    markComponents: (markComponents.data ?? []).map((column: any) => ({ ...column, course_code: column.courses?.code ?? 'Course' })),
++    markBreakdowns: Array.from(componentScoresByStudentCourse.values()),
+     issues: (issues.data ?? []).map((issue: any) => ({ ...issue, student_name: issue.profiles?.full_name ?? 'Student' })),
+     announcements: (announcements.data ?? []).map((announcement: any) => ({ ...announcement, course_code: announcement.courses?.code ?? 'All courses' })),
+     auditLogs: (auditLogs.data ?? []).map((log: any) => ({ ...log, actor_name: log.profiles?.full_name ?? 'System' })),
+@@ -103,6 +133,8 @@ export function loadDemoData(): AppData {
+     attendance: demoAttendance,
+     assessments: demoAssessments,
+     marks: demoMarks,
++    markComponents: demoMarkComponents,
++    markBreakdowns: demoMarkBreakdowns,
+     issues: demoIssues,
+     announcements: demoAnnouncements,
+     auditLogs: demoAuditLogs,
+diff --git a/src/lib/demoData.ts b/src/lib/demoData.ts
+index 89d2c55..c0176d4 100644
+--- a/src/lib/demoData.ts
++++ b/src/lib/demoData.ts
+@@ -8,6 +8,8 @@ import type {
+   FaceEnrollment,
+   LectureSession,
+   Mark,
++  MarkBreakdown,
++  MarkComponent,
+   Profile,
+   StudentIssue,
+ } from '../types'
+@@ -81,7 +83,26 @@ export const demoLectures: LectureSession[] = [
+     course_id: 'course-1',
+     course_code: 'CS601',
+     title: 'Lecture 12: Face embeddings',
+-    started_at: new Date().toISOString(),
++    session_type: 'lecture',
++    started_at: '2026-08-17T09:00:00+05:30',
++    status: 'active',
++  },
++  {
++    id: 'lecture-2',
++    course_id: 'course-1',
++    course_code: 'CS601',
++    title: 'Lab 6: Browser recognition terminal',
++    session_type: 'lab',
++    started_at: '2026-08-18T14:00:00+05:30',
++    status: 'active',
++  },
++  {
++    id: 'lecture-3',
++    course_id: 'course-2',
++    course_code: 'CS642',
++    title: 'Lecture 8: RLS and transactions',
++    session_type: 'lecture',
++    started_at: '2026-08-20T11:00:00+05:30',
+     status: 'active',
+   },
+ ]
+@@ -121,6 +142,37 @@ export const demoMarks: Mark[] = [
+   { id: 'mark-2', assessment_id: 'assessment-1', student_id: 'student-2', student_name: 'Rohan Mehta', value: 31, published: true },
+ ]
+ 
++export const demoMarkComponents: MarkComponent[] = [
++  { id: 'mc-1', course_id: 'course-1', course_code: 'CS601', key: 'insem_1', label: 'Insem 1', max_marks: 20, position: 1, active: true },
++  { id: 'mc-2', course_id: 'course-1', course_code: 'CS601', key: 'insem_2', label: 'Insem 2', max_marks: 20, position: 2, active: true },
++  { id: 'mc-3', course_id: 'course-1', course_code: 'CS601', key: 'end_sem', label: 'End Sem', max_marks: 40, position: 3, active: true },
++  { id: 'mc-4', course_id: 'course-1', course_code: 'CS601', key: 'total', label: 'Total', max_marks: 100, position: 4, active: true },
++  { id: 'mc-5', course_id: 'course-1', course_code: 'CS601', key: 'lab_marks', label: 'Lab Marks', max_marks: 20, position: 5, active: true },
++  { id: 'mc-6', course_id: 'course-1', course_code: 'CS601', key: 'challenges', label: 'Challenges', max_marks: 10, position: 6, active: true },
++  { id: 'mc-7', course_id: 'course-1', course_code: 'CS601', key: 'project', label: 'Project', max_marks: 20, position: 7, active: true },
++]
++
++export const demoMarkBreakdowns: MarkBreakdown[] = [
++  {
++    id: 'mb-1',
++    student_id: 'student-1',
++    student_name: 'Ananya Rao',
++    course_id: 'course-1',
++    course_code: 'CS601',
++    published: true,
++    scores: { insem_1: 17, insem_2: 18, end_sem: 34, total: 86, lab_marks: 19, challenges: 8, project: 18 },
++  },
++  {
++    id: 'mb-2',
++    student_id: 'student-2',
++    student_name: 'Rohan Mehta',
++    course_id: 'course-1',
++    course_code: 'CS601',
++    published: true,
++    scores: { insem_1: 15, insem_2: 16, end_sem: 31, total: 78, lab_marks: 17, challenges: 7, project: 16 },
++  },
++]
++
+ export const demoIssues: StudentIssue[] = [
+   {
+     id: 'issue-1',
+diff --git a/src/lib/importValidation.ts b/src/lib/importValidation.ts
+index a164e75..d9d45b8 100644
+--- a/src/lib/importValidation.ts
++++ b/src/lib/importValidation.ts
+@@ -20,7 +20,11 @@ export function previewImport(
+   const rows = parseCsv(text)
+   const [header, ...body] = rows
+   const studentIndex = header.findIndex((cell) => /student[_\s-]?id/i.test(cell))
+-  const valueIndex = header.findIndex((cell) => /^(marks?|score|status|attendance)$/i.test(cell))
++  const valueIndex = kind === 'marks'
++    ? header.findIndex((cell) => /^(total|marks?|score)$/i.test(cell)) >= 0
++      ? header.findIndex((cell) => /^(total|marks?|score)$/i.test(cell))
++      : header.findIndex((_cell, index) => index !== studentIndex)
++    : header.findIndex((cell) => /^(status|attendance)$/i.test(cell))
+   const seen = new Set<string>()
+   const byId = new Map(knownStudents.map((student) => [student.student_id, student]))
+ 
+@@ -31,7 +35,7 @@ export function previewImport(
+     const known = byId.get(studentId)
+ 
+     if (studentIndex < 0) messages.push('Missing Student ID column')
+-    if (valueIndex < 0) messages.push('Missing marks/status column')
++    if (valueIndex < 0) messages.push(kind === 'marks' ? 'Missing marks columns' : 'Missing attendance status column')
+     if (!studentId) messages.push('Student ID is required')
+     if (!known && studentId) messages.push('Student ID was not found')
+     if (seen.has(studentId)) messages.push('Duplicate student in import')
+diff --git a/src/pages/Dashboard.tsx b/src/pages/Dashboard.tsx
+index 7d41d09..c3113da 100644
+--- a/src/pages/Dashboard.tsx
++++ b/src/pages/Dashboard.tsx
+@@ -1,4 +1,4 @@
+-import { Bell, ClipboardCheck, GraduationCap, MessageSquareWarning, ShieldCheck, Users } from 'lucide-react'
++import { Bell, BookOpenCheck, CalendarDays, ClipboardCheck, FlaskConical, GraduationCap, MessageSquareWarning, ShieldCheck, Users } from 'lucide-react'
+ import { useQuery } from '@tanstack/react-query'
+ import { useAuth } from '../auth'
+ import { Card, Kpi, PageHeader, Spinner, StatusPill } from '../components/Layout'
+@@ -68,43 +68,69 @@ function StudentDashboard({ data }: { data: Awaited<ReturnType<typeof loadAppDat
+   const myAttendance = data.attendance.filter((record) => record.student_id === student.id)
+   const present = myAttendance.filter((record) => record.status === 'present' || record.status === 'late').length
+   const percent = myAttendance.length ? Math.round((present / myAttendance.length) * 100) : 0
++  const availableSessions = data.lectures
++    .filter((lecture) => lecture.status === 'active')
++    .sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime())
++  const groupedSessions = availableSessions.reduce<Record<string, typeof availableSessions>>((groups, session) => {
++    const day = new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: '2-digit', month: 'short' }).format(new Date(session.started_at))
++    groups[day] = [...(groups[day] ?? []), session]
++    return groups
++  }, {})
++  const myMarks = data.markBreakdowns.filter((row) => row.student_id === student.id && row.published)
++  const markColumns = data.markComponents.filter((column) => column.active).sort((a, b) => a.position - b.position)
+   return (
+     <>
+-      <PageHeader eyebrow="Student portal" title={`Welcome, ${student.full_name}`}>
+-        Track attendance, published marks, announcements, face-registration status, and issues.
++      <PageHeader eyebrow="Student portal" title={'Welcome, ' + student.full_name}>
++        Your main view shows available lectures/labs first, then published marks.
+       </PageHeader>
+       <div className="kpi-grid">
+-        <Kpi label="Attendance" value={`${percent}%`} icon={<ClipboardCheck size={20} />} />
+-        <Kpi label="Published marks" value={data.marks.filter((mark) => mark.student_id === student.id && mark.published).length} icon={<GraduationCap size={20} />} />
++        <Kpi label="Available lectures/labs" value={availableSessions.length} icon={<CalendarDays size={20} />} />
++        <Kpi label="Attendance" value={String(percent) + '%'} icon={<ClipboardCheck size={20} />} />
+         <Kpi label="Face status" value={enrollment?.state.replace('_', ' ') ?? 'not started'} icon={<ShieldCheck size={20} />} />
+         <Kpi label="Open queries" value={data.issues.filter((issue) => issue.student_id === student.id && issue.status !== 'resolved').length} icon={<MessageSquareWarning size={20} />} />
+       </div>
+-      <div className="dashboard-grid">
+-        <Card>
+-          <div className="section-title"><div><p className="eyebrow">Lecture history</p><h2>Attendance records</h2></div></div>
+-          <table>
+-            <thead><tr><th>Lecture</th><th>Status</th><th>Marked by</th></tr></thead>
+-            <tbody>
+-              {myAttendance.map((record) => (
+-                <tr key={record.id}>
+-                  <td>{data.lectures.find((lecture) => lecture.id === record.lecture_id)?.title}</td>
+-                  <td><StatusPill tone={record.status === 'present' ? 'good' : 'warn'}>{record.status.replace('_', ' ')}</StatusPill></td>
+-                  <td>{record.source}</td>
+-                </tr>
++      <div className="student-main-grid">
++        <Card className="student-primary-card">
++          <div className="section-title"><div><p className="eyebrow">Available now</p><h2>Lectures and labs</h2></div><BookOpenCheck size={20} /></div>
++          {Object.keys(groupedSessions).length ? (
++            <div className="day-session-list">
++              {Object.entries(groupedSessions).map(([day, sessions]) => (
++                <details key={day} open>
++                  <summary>{day}<span>{sessions.length} sessions</span></summary>
++                  <div className="session-list">
++                    {sessions.map((session) => {
++                      const record = myAttendance.find((item) => item.lecture_id === session.id)
++                      return (
++                        <article key={session.id} className="session-item">
++                          <span className={'session-icon ' + (session.session_type ?? 'lecture')}>{session.session_type === 'lab' ? <FlaskConical size={18} /> : <GraduationCap size={18} />}</span>
++                          <div>
++                            <strong>{session.title}</strong>
++                            <small>{session.course_code} · {new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit' }).format(new Date(session.started_at))}</small>
++                          </div>
++                          <StatusPill tone={record?.status === 'present' ? 'good' : record ? 'warn' : 'neutral'}>{record?.status.replace('_', ' ') ?? 'available'}</StatusPill>
++                        </article>
++                      )
++                    })}
++                  </div>
++                </details>
+               ))}
+-            </tbody>
+-          </table>
++            </div>
++          ) : <p className="muted-copy">No lectures or labs are available right now.</p>}
+         </Card>
+         <Card>
+-          <div className="section-title"><div><p className="eyebrow">Announcements</p><h2>Latest</h2></div></div>
+-          <div className="announcement-list">
+-            {data.announcements.map((announcement) => (
+-              <article key={announcement.id}>
+-                <strong>{announcement.title}</strong>
+-                <small>{announcement.course_code}</small>
+-                <p>{announcement.body}</p>
+-              </article>
+-            ))}
++          <div className="section-title"><div><p className="eyebrow">Academic marks</p><h2>Published marks</h2></div></div>
++          <div className="table-scroll">
++            <table className="marks-table">
++              <thead><tr><th>Course</th>{markColumns.map((column) => <th key={column.id}>{column.label}<small>/{column.max_marks}</small></th>)}</tr></thead>
++              <tbody>
++                {myMarks.map((row) => (
++                  <tr key={row.id}>
++                    <td>{row.course_code}</td>
++                    {markColumns.map((column) => <td key={column.id}>{row.scores[column.key] ?? '-'}</td>)}
++                  </tr>
++                ))}
++              </tbody>
++            </table>
+           </div>
+         </Card>
+       </div>
+diff --git a/src/pages/MarksImports.tsx b/src/pages/MarksImports.tsx
+index a64fbdd..bcdf7cc 100644
+--- a/src/pages/MarksImports.tsx
++++ b/src/pages/MarksImports.tsx
+@@ -1,18 +1,21 @@
+-import { FileCheck2, RotateCcw, Upload } from 'lucide-react'
++import { FileCheck2, Plus, RotateCcw, Save, Upload } from 'lucide-react'
+ import { useQuery } from '@tanstack/react-query'
+ import { useMemo, useState } from 'react'
+ import { Card, IconButton, PageHeader, StatusPill } from '../components/Layout'
+ import { loadAppData } from '../lib/api'
+ import { previewImport } from '../lib/importValidation'
++import type { MarkComponent } from '../types'
+ 
+-const sampleCsv = `Student ID,Marks
+-CSE001,36
+-CSE002,31
+-CSE003,absent`
++const sampleCsv = `Student ID,Insem 1,Insem 2,End Sem,Total,Lab Marks,Challenges,Project
++CSE001,17,18,34,86,19,8,18
++CSE002,15,16,31,78,17,7,16
++CSE003,14,missing,29,70,16,6,15`
+ 
+ export function MarksImports() {
+   const { data } = useQuery({ queryKey: ['app-data'], queryFn: loadAppData })
+   const [csv, setCsv] = useState(sampleCsv)
++  const [columns, setColumns] = useState<MarkComponent[]>([])
++  const activeColumns = columns.length ? columns : (data?.markComponents ?? [])
+   const students = useMemo(
+     () => data?.profiles.filter((profile) => profile.role === 'student').map((profile) => ({
+       student_id: profile.student_id ?? '',
+@@ -21,51 +24,100 @@ export function MarksImports() {
+     [data],
+   )
+   const preview = useMemo(() => previewImport(csv, students, 'marks'), [csv, students])
++
++  function updateColumn(id: string, key: keyof Pick<MarkComponent, 'label' | 'max_marks' | 'active'>, value: string | boolean) {
++    setColumns((current) => {
++      const base = current.length ? current : [...(data?.markComponents ?? [])]
++      return base.map((column) => column.id === id ? {
++        ...column,
++        [key]: key === 'max_marks' ? Number(value) : value,
++      } : column)
++    })
++  }
++
++  function addColumn() {
++    setColumns((current) => {
++      const base = current.length ? current : [...(data?.markComponents ?? [])]
++      const next = base.length + 1
++      return [...base, {
++        id: `local-${next}`,
++        course_id: data?.courses[0]?.id ?? 'course-1',
++        course_code: data?.courses[0]?.code ?? 'COURSE',
++        key: `custom_${next}`,
++        label: `Custom ${next}`,
++        max_marks: 10,
++        position: next,
++        active: true,
++      }]
++    })
++  }
++
+   return (
+     <>
+       <PageHeader eyebrow="Academic records" title="Marks and imports">
+-        Marks stay in draft until published. Bulk imports always preview before execution and can be rolled back by import ID.
++        Configure the marks table, preview Excel/CSV imports, publish only when ready, and keep rollback IDs for mistakes.
+       </PageHeader>
+-      <div className="two-column">
++      <div className="marks-admin-grid">
+         <Card>
+-          <div className="section-title"><div><p className="eyebrow">Draft marks</p><h2>Assessments</h2></div><IconButton className="primary"><FileCheck2 size={16} />Publish selected</IconButton></div>
+-          <table>
+-            <thead><tr><th>Course</th><th>Assessment</th><th>Max</th><th>State</th></tr></thead>
+-            <tbody>
+-              {data?.assessments.map((assessment) => (
+-                <tr key={assessment.id}>
+-                  <td>{assessment.course_code}</td>
+-                  <td>{assessment.title}</td>
+-                  <td>{assessment.max_marks}</td>
+-                  <td><StatusPill tone={assessment.published ? 'good' : 'warn'}>{assessment.published ? 'published' : 'draft'}</StatusPill></td>
+-                </tr>
+-              ))}
+-            </tbody>
+-          </table>
++          <div className="section-title"><div><p className="eyebrow">Editable table</p><h2>Marks columns</h2></div><IconButton className="primary" onClick={addColumn}><Plus size={16} />Add column</IconButton></div>
++          <div className="table-scroll">
++            <table>
++              <thead><tr><th>Column</th><th>Max</th><th>Visible</th></tr></thead>
++              <tbody>
++                {activeColumns.sort((a, b) => a.position - b.position).map((column) => (
++                  <tr key={column.id}>
++                    <td><input value={column.label} onChange={(event) => updateColumn(column.id, 'label', event.target.value)} /></td>
++                    <td><input type="number" min="0" value={column.max_marks} onChange={(event) => updateColumn(column.id, 'max_marks', event.target.value)} /></td>
++                    <td><input className="checkbox-input" type="checkbox" checked={column.active} onChange={(event) => updateColumn(column.id, 'active', event.target.checked)} /></td>
++                  </tr>
++                ))}
++              </tbody>
++            </table>
++          </div>
++          <div className="import-actions">
++            <IconButton><Save size={16} />Save table shape</IconButton>
++            <IconButton className="primary"><FileCheck2 size={16} />Publish selected</IconButton>
++          </div>
+         </Card>
+         <Card>
+-          <div className="section-title"><div><p className="eyebrow">Import preview</p><h2>CSV validator</h2></div><StatusPill tone={preview.errorCount ? 'danger' : 'good'}>{preview.importId.slice(0, 8)}</StatusPill></div>
+-          <textarea value={csv} onChange={(event) => setCsv(event.target.value)} aria-label="CSV import input" />
+-          <div className="import-actions">
+-            <StatusPill tone={preview.errorCount ? 'danger' : 'good'}>{preview.validCount} valid / {preview.errorCount} errors</StatusPill>
+-            <IconButton disabled={preview.errorCount > 0}><Upload size={16} />Confirm import</IconButton>
+-            <IconButton><RotateCcw size={16} />Rollback import</IconButton>
++          <div className="section-title"><div><p className="eyebrow">Student table</p><h2>Current marks</h2></div></div>
++          <div className="table-scroll">
++            <table className="marks-table">
++              <thead><tr><th>Student</th>{activeColumns.filter((column) => column.active).map((column) => <th key={column.id}>{column.label}<small>/{column.max_marks}</small></th>)}</tr></thead>
++              <tbody>
++                {data?.markBreakdowns.map((row) => (
++                  <tr key={row.id}>
++                    <td>{row.student_name}</td>
++                    {activeColumns.filter((column) => column.active).map((column) => <td key={column.id}>{row.scores[column.key] ?? '-'}</td>)}
++                  </tr>
++                ))}
++              </tbody>
++            </table>
+           </div>
+-          <table>
+-            <thead><tr><th>Row</th><th>Student</th><th>Value</th><th>Messages</th></tr></thead>
+-            <tbody>
+-              {preview.rows.map((row) => (
+-                <tr key={row.rowNumber}>
+-                  <td>{row.rowNumber}</td>
+-                  <td>{row.studentName ?? row.studentId}</td>
+-                  <td>{row.value}</td>
+-                  <td><StatusPill tone={row.status === 'valid' ? 'good' : 'danger'}>{row.messages.join(', ') || 'valid'}</StatusPill></td>
+-                </tr>
+-              ))}
+-            </tbody>
+-          </table>
+         </Card>
+       </div>
++      <Card className="import-preview-card">
++        <div className="section-title"><div><p className="eyebrow">Import preview</p><h2>Excel/CSV validator</h2></div><StatusPill tone={preview.errorCount ? 'danger' : 'good'}>{preview.importId.slice(0, 8)}</StatusPill></div>
++        <textarea value={csv} onChange={(event) => setCsv(event.target.value)} aria-label="CSV import input" />
++        <div className="import-actions">
++          <StatusPill tone={preview.errorCount ? 'danger' : 'good'}>{preview.validCount} valid / {preview.errorCount} errors</StatusPill>
++          <IconButton disabled={preview.errorCount > 0}><Upload size={16} />Confirm import</IconButton>
++          <IconButton><RotateCcw size={16} />Rollback import</IconButton>
++        </div>
++        <table>
++          <thead><tr><th>Row</th><th>Student</th><th>Value</th><th>Messages</th></tr></thead>
++          <tbody>
++            {preview.rows.map((row) => (
++              <tr key={row.rowNumber}>
++                <td>{row.rowNumber}</td>
++                <td>{row.studentName ?? row.studentId}</td>
++                <td>{row.value}</td>
++                <td><StatusPill tone={row.status === 'valid' ? 'good' : 'danger'}>{row.messages.join(', ') || 'valid'}</StatusPill></td>
++              </tr>
++            ))}
++          </tbody>
++        </table>
++      </Card>
+     </>
+   )
+ }
+diff --git a/src/styles.css b/src/styles.css
+index 0f430be..b464693 100644
+--- a/src/styles.css
++++ b/src/styles.css
+@@ -162,3 +162,25 @@ main { min-width: 0; padding: 2.5rem clamp(1rem, 3vw, 3rem) 5rem; }
+   .role-switch { flex-direction: column; }
+   .role-switch button { min-height: 42px; }
+ }
++.brand-mark img { width: 100%; height: 100%; display: block; border-radius: inherit; }
++.student-main-grid { display: grid; grid-template-columns: minmax(0, .95fr) minmax(420px, 1.05fr); gap: .85rem; align-items: start; }
++.student-primary-card { min-height: 420px; }
++.day-session-list { display: grid; gap: .75rem; }
++.day-session-list details { border: 1px solid var(--line); border-radius: 8px; background: #fbfcfd; overflow: hidden; }
++.day-session-list summary { display: flex; justify-content: space-between; gap: 1rem; padding: .9rem 1rem; font-weight: 900; cursor: pointer; }
++.day-session-list summary span { color: var(--muted); font-size: .75rem; font-weight: 800; }
++.session-list { display: grid; gap: .55rem; padding: 0 .85rem .85rem; }
++.session-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .75rem; padding: .8rem; border: 1px solid #e8edf2; border-radius: 8px; background: #fff; }
++.session-item strong { display: block; overflow-wrap: anywhere; }
++.session-item small { display: block; margin-top: .2rem; }
++.session-icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 8px; background: rgb(35 100 170 / 10%); color: var(--accent); }
++.session-icon.lab { background: rgb(47 133 90 / 12%); color: var(--accent-2); }
++.table-scroll { overflow: auto; }
++.marks-table th small { display: block; color: var(--muted); font-weight: 700; margin-top: .15rem; }
++.marks-table td:not(:first-child), .marks-table th:not(:first-child) { text-align: center; }
++.marks-admin-grid { display: grid; grid-template-columns: minmax(360px, .85fr) minmax(0, 1.15fr); gap: .85rem; align-items: start; }
++.import-preview-card { margin-top: .85rem; }
++.checkbox-input { width: 20px; height: 20px; }
++.muted-copy { color: var(--muted); line-height: 1.6; }
++@media (max-width: 1120px) { .student-main-grid, .marks-admin-grid { grid-template-columns: 1fr; } }
++@media (max-width: 760px) { .session-item { grid-template-columns: auto minmax(0, 1fr); } .session-item .status-pill { grid-column: 1 / -1; justify-self: start; } }
+diff --git a/src/types.ts b/src/types.ts
+index 98b03c4..1aa5600 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -63,6 +63,7 @@ export interface LectureSession {
+   course_id: string
+   course_code: string
+   title: string
++  session_type?: 'lecture' | 'lab'
+   started_at: string
+   ended_at?: string
+   status: 'active' | 'closed'
+@@ -99,6 +100,27 @@ export interface Mark {
+   published: boolean
+ }
+ 
++export interface MarkComponent {
++  id: string
++  course_id: string
++  course_code: string
++  key: string
++  label: string
++  max_marks: number
++  position: number
++  active: boolean
++}
++
++export interface MarkBreakdown {
++  id: string
++  student_id: string
++  student_name: string
++  course_id: string
++  course_code: string
++  published: boolean
++  scores: Record<string, number>
++}
++
+ export interface StudentIssue {
+   id: string
+   student_id: string
+diff --git a/supabase/migrations/202608170001_initial_platform.sql b/supabase/migrations/202608170001_initial_platform.sql
+index f2730c8..f7c05a1 100644
+--- a/supabase/migrations/202608170001_initial_platform.sql
++++ b/supabase/migrations/202608170001_initial_platform.sql
+@@ -372,3 +372,45 @@ create policy "admins manage face frames"
+ on storage.objects for all
+ using (bucket_id = 'face-frames' and public.is_admin())
+ with check (bucket_id = 'face-frames' and public.is_admin());
++
++create table if not exists public.mark_components (
++  id uuid primary key default gen_random_uuid(),
++  course_id uuid not null references public.courses(id),
++  key text not null,
++  label text not null,
++  max_marks numeric(8,2) not null default 0 check (max_marks >= 0),
++  position integer not null default 0,
++  active boolean not null default true,
++  created_at timestamptz not null default now(),
++  updated_at timestamptz not null default now(),
++  unique (course_id, key)
++);
++
++create table if not exists public.mark_component_scores (
++  id uuid primary key default gen_random_uuid(),
++  component_id uuid not null references public.mark_components(id) on delete cascade,
++  student_id uuid not null references public.profiles(id),
++  value numeric(8,2) not null default 0 check (value >= 0),
++  published boolean not null default false,
++  updated_by uuid references public.profiles(id),
++  updated_at timestamptz not null default now(),
++  unique (component_id, student_id)
++);
++
++alter table public.mark_components enable row level security;
++alter table public.mark_component_scores enable row level security;
++
++create trigger mark_components_touch before update on public.mark_components for each row execute function public.touch_updated_at();
++create trigger mark_component_scores_audit after insert or update or delete on public.mark_component_scores for each row execute function public.audit_change();
++
++create policy "published mark components read members" on public.mark_components for select using (
++  public.is_admin() or exists (
++    select 1 from public.course_memberships cm where cm.course_id = mark_components.course_id and cm.student_id = auth.uid() and cm.deleted_at is null
++  )
++);
++create policy "admin manages mark components" on public.mark_components for all using (public.is_admin()) with check (public.is_admin());
++
++create policy "published component scores read own" on public.mark_component_scores for select using (
++  public.is_admin() or (student_id = auth.uid() and published)
++);
++create policy "admin manages component scores" on public.mark_component_scores for all using (public.is_admin()) with check (public.is_admin());
+diff --git a/vercel.json b/vercel.json
+new file mode 100644
+index 0000000..0d199b2
+--- /dev/null
++++ b/vercel.json
+@@ -0,0 +1,5 @@
++{
++  "rewrites": [
++    { "source": "/(.*)", "destination": "/index.html" }
++  ]
++}
+-- 
+2.43.0
+
+
+From 14b2c28688cb62d7d2181015b25a9b64c787d12c Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.local>
+Date: Tue, 18 Aug 2026 00:25:09 +0530
+Subject: [PATCH 2/2] Avoid Supabase relationship 400s on load
+
+---
+ README.md                                     | 14 +++++
+ src/lib/api.ts                                | 60 ++++++++++---------
+ .../202608170001_initial_platform.sql         | 26 ++++++++
+ 3 files changed, 73 insertions(+), 27 deletions(-)
+
+diff --git a/README.md b/README.md
+index 4e56eaa..7c55681 100644
+--- a/README.md
++++ b/README.md
+@@ -173,3 +173,17 @@ Use it for Vercel/project branding, favicon conversion, README previews, or coll
+ - Students do not generate embeddings or run attendance recognition.
+ - Attendance is online-only in v1.
+ - Supabase is the persistent source of truth.
++
++## 10. Troubleshooting: 400 While Loading
++
++If the browser console says `Failed to load resource: the server responded with a status of 400`, it is usually a Supabase REST query problem.
++
++Check these first:
++
++1. Run the latest full migration SQL again in Supabase SQL Editor.
++2. Confirm these tables exist: `profiles`, `courses`, `lecture_sessions`, `mark_components`, `mark_component_scores`.
++3. Confirm Vercel env vars are correct and redeploy after changing them.
++4. In browser DevTools, open `Network`, click the failed `rest/v1/...` request, and read the JSON error message.
++5. Make sure `VITE_DEV_AUTH_BYPASS=false` only when Supabase is fully configured.
++
++The frontend now avoids nested Supabase relationship selects, which removes the most common PostgREST 400 cause.
+diff --git a/src/lib/api.ts b/src/lib/api.ts
+index 14d693d..adc6658 100644
+--- a/src/lib/api.ts
++++ b/src/lib/api.ts
+@@ -66,60 +66,66 @@ export async function loadAppData(): Promise<AppData> {
+     auditLogs,
+   ] = await Promise.all([
+     supabase.from('profiles').select('*'),
+-    supabase.from('courses').select('*, course_memberships(count)'),
+-    supabase.from('face_enrollments').select('*, profiles(full_name), course_memberships(courses(code))'),
++    supabase.from('courses').select('*'),
++    supabase.from('face_enrollments').select('*'),
+     supabase.from('face_embeddings').select('*'),
+-    supabase.from('lecture_sessions').select('*, courses(code)'),
+-    supabase.from('attendance_records').select('*, profiles(full_name)'),
+-    supabase.from('assessments').select('*, courses(code)'),
+-    supabase.from('marks').select('*, profiles(full_name)'),
+-    supabase.from('mark_components').select('*, courses(code)').order('position'),
+-    supabase.from('mark_component_scores').select('*, mark_components(course_id, key, courses(code)), profiles(full_name)'),
+-    supabase.from('student_issues').select('*, profiles(full_name)'),
+-    supabase.from('announcements').select('*, courses(code)'),
+-    supabase.from('audit_logs').select('*, profiles(full_name)').order('created_at', { ascending: false }).limit(100),
++    supabase.from('lecture_sessions').select('*'),
++    supabase.from('attendance_records').select('*'),
++    supabase.from('assessments').select('*'),
++    supabase.from('marks').select('*'),
++    supabase.from('mark_components').select('*').order('position'),
++    supabase.from('mark_component_scores').select('*'),
++    supabase.from('student_issues').select('*'),
++    supabase.from('announcements').select('*'),
++    supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(100),
+   ])
+ 
+   for (const result of [profiles, courses, enrollments, embeddings, lectures, attendance, assessments, marks, markComponents, markComponentScores, issues, announcements, auditLogs]) {
+     if (result.error) throw result.error
+   }
+ 
++  const profileById = new Map((profiles.data ?? []).map((profile: any) => [profile.id, profile]))
++  const courseById = new Map((courses.data ?? []).map((course: any) => [course.id, course]))
++  const componentById = new Map((markComponents.data ?? []).map((component: any) => [component.id, component]))
++  const membershipCountByCourse = new Map<string, number>()
++
+   const componentScoresByStudentCourse = new Map<string, any>()
+   for (const score of markComponentScores.data ?? []) {
+-    const courseId = score.mark_components?.course_id ?? 'course'
+-    const key = score.student_id + ':' + courseId
++    const component = componentById.get(score.component_id)
++    const course = courseById.get(component?.course_id)
++    const key = score.student_id + ':' + (component?.course_id ?? 'course')
+     const existing = componentScoresByStudentCourse.get(key) ?? {
+       id: key,
+       student_id: score.student_id,
+-      student_name: score.profiles?.full_name ?? 'Student',
+-      course_id: courseId,
+-      course_code: score.mark_components?.courses?.code ?? 'Course',
++      student_name: profileById.get(score.student_id)?.full_name ?? 'Student',
++      course_id: component?.course_id ?? 'course',
++      course_code: course?.code ?? 'Course',
+       published: Boolean(score.published),
+       scores: {},
+     }
+     existing.published = existing.published || Boolean(score.published)
+-    existing.scores[score.mark_components?.key ?? score.component_id] = Number(score.value)
++    existing.scores[component?.key ?? score.component_id] = Number(score.value)
+     componentScoresByStudentCourse.set(key, existing)
+   }
+ 
+   return {
+     profiles: profiles.data as Profile[],
+-    courses: (courses.data ?? []).map((course: any) => ({ ...course, enrolled_count: course.course_memberships?.[0]?.count ?? 0 })),
++    courses: (courses.data ?? []).map((course: any) => ({ ...course, enrolled_count: membershipCountByCourse.get(course.id) ?? 0 })),
+     enrollments: (enrollments.data ?? []).map((enrollment: any) => ({
+       ...enrollment,
+-      student_name: enrollment.profiles?.full_name ?? 'Student',
++      student_name: profileById.get(enrollment.student_id)?.full_name ?? 'Student',
+       course_codes: [],
+     })),
+     embeddings: (embeddings.data ?? []).map((embedding: any) => ({ ...embedding, vector: embedding.embedding })),
+-    lectures: (lectures.data ?? []).map((lecture: any) => ({ ...lecture, course_code: lecture.courses?.code ?? 'Course' })),
+-    attendance: (attendance.data ?? []).map((record: any) => ({ ...record, student_name: record.profiles?.full_name ?? 'Student' })),
+-    assessments: (assessments.data ?? []).map((assessment: any) => ({ ...assessment, course_code: assessment.courses?.code ?? 'Course' })),
+-    marks: (marks.data ?? []).map((mark: any) => ({ ...mark, student_name: mark.profiles?.full_name ?? 'Student' })),
+-    markComponents: (markComponents.data ?? []).map((column: any) => ({ ...column, course_code: column.courses?.code ?? 'Course' })),
++    lectures: (lectures.data ?? []).map((lecture: any) => ({ ...lecture, course_code: courseById.get(lecture.course_id)?.code ?? 'Course' })),
++    attendance: (attendance.data ?? []).map((record: any) => ({ ...record, student_name: profileById.get(record.student_id)?.full_name ?? 'Student' })),
++    assessments: (assessments.data ?? []).map((assessment: any) => ({ ...assessment, course_code: courseById.get(assessment.course_id)?.code ?? 'Course' })),
++    marks: (marks.data ?? []).map((mark: any) => ({ ...mark, student_name: profileById.get(mark.student_id)?.full_name ?? 'Student' })),
++    markComponents: (markComponents.data ?? []).map((column: any) => ({ ...column, course_code: courseById.get(column.course_id)?.code ?? 'Course' })),
+     markBreakdowns: Array.from(componentScoresByStudentCourse.values()),
+-    issues: (issues.data ?? []).map((issue: any) => ({ ...issue, student_name: issue.profiles?.full_name ?? 'Student' })),
+-    announcements: (announcements.data ?? []).map((announcement: any) => ({ ...announcement, course_code: announcement.courses?.code ?? 'All courses' })),
+-    auditLogs: (auditLogs.data ?? []).map((log: any) => ({ ...log, actor_name: log.profiles?.full_name ?? 'System' })),
++    issues: (issues.data ?? []).map((issue: any) => ({ ...issue, student_name: profileById.get(issue.student_id)?.full_name ?? 'Student' })),
++    announcements: (announcements.data ?? []).map((announcement: any) => ({ ...announcement, course_code: announcement.course_id ? courseById.get(announcement.course_id)?.code ?? 'Course' : 'All courses' })),
++    auditLogs: (auditLogs.data ?? []).map((log: any) => ({ ...log, actor_name: profileById.get(log.actor_id)?.full_name ?? 'System' })),
+   }
+ }
+ 
+diff --git a/supabase/migrations/202608170001_initial_platform.sql b/supabase/migrations/202608170001_initial_platform.sql
+index f7c05a1..0f130fd 100644
+--- a/supabase/migrations/202608170001_initial_platform.sql
++++ b/supabase/migrations/202608170001_initial_platform.sql
+@@ -414,3 +414,29 @@ create policy "published component scores read own" on public.mark_component_sco
+   public.is_admin() or (student_id = auth.uid() and published)
+ );
+ create policy "admin manages component scores" on public.mark_component_scores for all using (public.is_admin()) with check (public.is_admin());
++
++create or replace function public.handle_new_user_profile()
++returns trigger
++language plpgsql
++security definer
++set search_path = public
++as $$
++begin
++  insert into public.profiles (id, role, full_name, student_id, email, phone)
++  values (
++    new.id,
++    'student',
++    coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
++    coalesce(new.raw_user_meta_data->>'student_id', 'STU-' || left(new.id::text, 8)),
++    new.email,
++    new.raw_user_meta_data->>'phone'
++  )
++  on conflict (id) do nothing;
++  return new;
++end;
++$$;
++
++drop trigger if exists on_auth_user_created_create_profile on auth.users;
++create trigger on_auth_user_created_create_profile
++after insert on auth.users
++for each row execute function public.handle_new_user_profile();
+-- 
+2.43.0
+
