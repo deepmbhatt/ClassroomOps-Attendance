@@ -276,3 +276,80 @@ export async function claimNextEnrollment(workerId: string) {
   if (error) throw error
   return data
 }
+
+
+export interface EnrollmentFrameRecord {
+  id: string
+  enrollment_id: string
+  student_id: string
+  storage_path: string
+  pose_label?: string
+  width?: number
+  height?: number
+}
+
+export async function loadEnrollmentFrames(enrollmentId: string) {
+  if (devBypass) return [] as EnrollmentFrameRecord[]
+  const supabase = requireSupabase()
+  const { data, error } = await supabase
+    .from('face_enrollment_frames')
+    .select('*')
+    .eq('enrollment_id', enrollmentId)
+    .order('created_at')
+  if (error) throw error
+  return (data ?? []) as EnrollmentFrameRecord[]
+}
+
+export async function downloadFaceFrame(storagePath: string) {
+  const supabase = requireSupabase()
+  const { data, error } = await supabase.storage.from('face-frames').download(storagePath)
+  if (error) throw error
+  return data
+}
+
+export async function completeEnrollmentProcessing(input: {
+  enrollmentId: string
+  studentId: string
+  embedding: number[]
+  modelVersion: string
+  pipelineVersion: string
+  sourceFrameIds: string[]
+}) {
+  if (devBypass) return
+  const supabase = requireSupabase()
+  const { data: userData } = await supabase.auth.getUser()
+
+  await supabase
+    .from('face_embeddings')
+    .update({ active: false })
+    .eq('student_id', input.studentId)
+    .eq('active', true)
+
+  const { error: embeddingError } = await supabase.from('face_embeddings').insert({
+    student_id: input.studentId,
+    enrollment_id: input.enrollmentId,
+    model_version: input.modelVersion,
+    pipeline_version: input.pipelineVersion,
+    embedding: input.embedding,
+    source_frame_ids: input.sourceFrameIds,
+    created_by: userData.user?.id ?? null,
+    active: true,
+  })
+  if (embeddingError) throw embeddingError
+
+  const { error: enrollmentError } = await supabase
+    .from('face_enrollments')
+    .update({ state: 'ready', lock_owner: null, locked_at: null, failure_reason: null })
+    .eq('id', input.enrollmentId)
+  if (enrollmentError) throw enrollmentError
+}
+
+export async function failEnrollmentProcessing(enrollmentId: string, reason: string) {
+  if (devBypass) return
+  const supabase = requireSupabase()
+  const { error } = await supabase
+    .from('face_enrollments')
+    .update({ state: 'quality_failed', lock_owner: null, locked_at: null, failure_reason: reason })
+    .eq('id', enrollmentId)
+  if (error) throw error
+}

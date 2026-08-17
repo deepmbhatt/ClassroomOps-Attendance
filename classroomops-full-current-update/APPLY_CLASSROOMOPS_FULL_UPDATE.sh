@@ -25,6 +25,7 @@ for path in \
   src/pages/MarksImports.tsx \
   src/styles.css \
   src/types.ts \
+  src/tests/App.test.tsx \
   supabase/functions/bulk-create-students/index.ts \
   supabase/migrations/202608170001_initial_platform.sql \
   supabase/migrations/202608180001_lock_student_signup_roles.sql \
