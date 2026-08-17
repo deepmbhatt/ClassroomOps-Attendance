@@ -63,6 +63,7 @@ export interface LectureSession {
   course_id: string
   course_code: string
   title: string
+  session_type?: 'lecture' | 'lab'
   started_at: string
   ended_at?: string
   status: 'active' | 'closed'
@@ -97,6 +98,27 @@ export interface Mark {
   student_name: string
   value: number
   published: boolean
+}
+
+export interface MarkComponent {
+  id: string
+  course_id: string
+  course_code: string
+  key: string
+  label: string
+  max_marks: number
+  position: number
+  active: boolean
+}
+
+export interface MarkBreakdown {
+  id: string
+  student_id: string
+  student_name: string
+  course_id: string
+  course_code: string
+  published: boolean
+  scores: Record<string, number>
 }
 
 export interface StudentIssue {

@@ -372,3 +372,45 @@ create policy "admins manage face frames"
 on storage.objects for all
 using (bucket_id = 'face-frames' and public.is_admin())
 with check (bucket_id = 'face-frames' and public.is_admin());
+
+create table if not exists public.mark_components (
+  id uuid primary key default gen_random_uuid(),
+  course_id uuid not null references public.courses(id),
+  key text not null,
+  label text not null,
+  max_marks numeric(8,2) not null default 0 check (max_marks >= 0),
+  position integer not null default 0,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (course_id, key)
+);
+
+create table if not exists public.mark_component_scores (
+  id uuid primary key default gen_random_uuid(),
+  component_id uuid not null references public.mark_components(id) on delete cascade,
+  student_id uuid not null references public.profiles(id),
+  value numeric(8,2) not null default 0 check (value >= 0),
+  published boolean not null default false,
+  updated_by uuid references public.profiles(id),
+  updated_at timestamptz not null default now(),
+  unique (component_id, student_id)
+);
+
+alter table public.mark_components enable row level security;
+alter table public.mark_component_scores enable row level security;
+
+create trigger mark_components_touch before update on public.mark_components for each row execute function public.touch_updated_at();
+create trigger mark_component_scores_audit after insert or update or delete on public.mark_component_scores for each row execute function public.audit_change();
+
+create policy "published mark components read members" on public.mark_components for select using (
+  public.is_admin() or exists (
+    select 1 from public.course_memberships cm where cm.course_id = mark_components.course_id and cm.student_id = auth.uid() and cm.deleted_at is null
+  )
+);
+create policy "admin manages mark components" on public.mark_components for all using (public.is_admin()) with check (public.is_admin());
+
+create policy "published component scores read own" on public.mark_component_scores for select using (
+  public.is_admin() or (student_id = auth.uid() and published)
+);
+create policy "admin manages component scores" on public.mark_component_scores for all using (public.is_admin()) with check (public.is_admin());

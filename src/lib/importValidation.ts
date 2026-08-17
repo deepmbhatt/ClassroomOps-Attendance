@@ -20,7 +20,11 @@ export function previewImport(
   const rows = parseCsv(text)
   const [header, ...body] = rows
   const studentIndex = header.findIndex((cell) => /student[_\s-]?id/i.test(cell))
-  const valueIndex = header.findIndex((cell) => /^(marks?|score|status|attendance)$/i.test(cell))
+  const valueIndex = kind === 'marks'
+    ? header.findIndex((cell) => /^(total|marks?|score)$/i.test(cell)) >= 0
+      ? header.findIndex((cell) => /^(total|marks?|score)$/i.test(cell))
+      : header.findIndex((_cell, index) => index !== studentIndex)
+    : header.findIndex((cell) => /^(status|attendance)$/i.test(cell))
   const seen = new Set<string>()
   const byId = new Map(knownStudents.map((student) => [student.student_id, student]))
 
@@ -31,7 +35,7 @@ export function previewImport(
     const known = byId.get(studentId)
 
     if (studentIndex < 0) messages.push('Missing Student ID column')
-    if (valueIndex < 0) messages.push('Missing marks/status column')
+    if (valueIndex < 0) messages.push(kind === 'marks' ? 'Missing marks columns' : 'Missing attendance status column')
     if (!studentId) messages.push('Student ID is required')
     if (!known && studentId) messages.push('Student ID was not found')
     if (seen.has(studentId)) messages.push('Duplicate student in import')

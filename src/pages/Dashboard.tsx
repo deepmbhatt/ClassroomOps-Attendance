@@ -1,4 +1,4 @@
-import { Bell, ClipboardCheck, GraduationCap, MessageSquareWarning, ShieldCheck, Users } from 'lucide-react'
+import { Bell, BookOpenCheck, CalendarDays, ClipboardCheck, FlaskConical, GraduationCap, MessageSquareWarning, ShieldCheck, Users } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '../auth'
 import { Card, Kpi, PageHeader, Spinner, StatusPill } from '../components/Layout'
@@ -68,43 +68,69 @@ function StudentDashboard({ data }: { data: Awaited<ReturnType<typeof loadAppDat
   const myAttendance = data.attendance.filter((record) => record.student_id === student.id)
   const present = myAttendance.filter((record) => record.status === 'present' || record.status === 'late').length
   const percent = myAttendance.length ? Math.round((present / myAttendance.length) * 100) : 0
+  const availableSessions = data.lectures
+    .filter((lecture) => lecture.status === 'active')
+    .sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime())
+  const groupedSessions = availableSessions.reduce<Record<string, typeof availableSessions>>((groups, session) => {
+    const day = new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: '2-digit', month: 'short' }).format(new Date(session.started_at))
+    groups[day] = [...(groups[day] ?? []), session]
+    return groups
+  }, {})
+  const myMarks = data.markBreakdowns.filter((row) => row.student_id === student.id && row.published)
+  const markColumns = data.markComponents.filter((column) => column.active).sort((a, b) => a.position - b.position)
   return (
     <>
-      <PageHeader eyebrow="Student portal" title={`Welcome, ${student.full_name}`}>
-        Track attendance, published marks, announcements, face-registration status, and issues.
+      <PageHeader eyebrow="Student portal" title={'Welcome, ' + student.full_name}>
+        Your main view shows available lectures/labs first, then published marks.
       </PageHeader>
       <div className="kpi-grid">
-        <Kpi label="Attendance" value={`${percent}%`} icon={<ClipboardCheck size={20} />} />
-        <Kpi label="Published marks" value={data.marks.filter((mark) => mark.student_id === student.id && mark.published).length} icon={<GraduationCap size={20} />} />
+        <Kpi label="Available lectures/labs" value={availableSessions.length} icon={<CalendarDays size={20} />} />
+        <Kpi label="Attendance" value={String(percent) + '%'} icon={<ClipboardCheck size={20} />} />
         <Kpi label="Face status" value={enrollment?.state.replace('_', ' ') ?? 'not started'} icon={<ShieldCheck size={20} />} />
         <Kpi label="Open queries" value={data.issues.filter((issue) => issue.student_id === student.id && issue.status !== 'resolved').length} icon={<MessageSquareWarning size={20} />} />
       </div>
-      <div className="dashboard-grid">
-        <Card>
-          <div className="section-title"><div><p className="eyebrow">Lecture history</p><h2>Attendance records</h2></div></div>
-          <table>
-            <thead><tr><th>Lecture</th><th>Status</th><th>Marked by</th></tr></thead>
-            <tbody>
-              {myAttendance.map((record) => (
-                <tr key={record.id}>
-                  <td>{data.lectures.find((lecture) => lecture.id === record.lecture_id)?.title}</td>
-                  <td><StatusPill tone={record.status === 'present' ? 'good' : 'warn'}>{record.status.replace('_', ' ')}</StatusPill></td>
-                  <td>{record.source}</td>
-                </tr>
+      <div className="student-main-grid">
+        <Card className="student-primary-card">
+          <div className="section-title"><div><p className="eyebrow">Available now</p><h2>Lectures and labs</h2></div><BookOpenCheck size={20} /></div>
+          {Object.keys(groupedSessions).length ? (
+            <div className="day-session-list">
+              {Object.entries(groupedSessions).map(([day, sessions]) => (
+                <details key={day} open>
+                  <summary>{day}<span>{sessions.length} sessions</span></summary>
+                  <div className="session-list">
+                    {sessions.map((session) => {
+                      const record = myAttendance.find((item) => item.lecture_id === session.id)
+                      return (
+                        <article key={session.id} className="session-item">
+                          <span className={'session-icon ' + (session.session_type ?? 'lecture')}>{session.session_type === 'lab' ? <FlaskConical size={18} /> : <GraduationCap size={18} />}</span>
+                          <div>
+                            <strong>{session.title}</strong>
+                            <small>{session.course_code} · {new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit' }).format(new Date(session.started_at))}</small>
+                          </div>
+                          <StatusPill tone={record?.status === 'present' ? 'good' : record ? 'warn' : 'neutral'}>{record?.status.replace('_', ' ') ?? 'available'}</StatusPill>
+                        </article>
+                      )
+                    })}
+                  </div>
+                </details>
               ))}
-            </tbody>
-          </table>
+            </div>
+          ) : <p className="muted-copy">No lectures or labs are available right now.</p>}
         </Card>
         <Card>
-          <div className="section-title"><div><p className="eyebrow">Announcements</p><h2>Latest</h2></div></div>
-          <div className="announcement-list">
-            {data.announcements.map((announcement) => (
-              <article key={announcement.id}>
-                <strong>{announcement.title}</strong>
-                <small>{announcement.course_code}</small>
-                <p>{announcement.body}</p>
-              </article>
-            ))}
+          <div className="section-title"><div><p className="eyebrow">Academic marks</p><h2>Published marks</h2></div></div>
+          <div className="table-scroll">
+            <table className="marks-table">
+              <thead><tr><th>Course</th>{markColumns.map((column) => <th key={column.id}>{column.label}<small>/{column.max_marks}</small></th>)}</tr></thead>
+              <tbody>
+                {myMarks.map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.course_code}</td>
+                    {markColumns.map((column) => <td key={column.id}>{row.scores[column.key] ?? '-'}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </Card>
       </div>

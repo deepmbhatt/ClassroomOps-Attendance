@@ -8,6 +8,8 @@ import type {
   FaceEnrollment,
   LectureSession,
   Mark,
+  MarkBreakdown,
+  MarkComponent,
   Profile,
   StudentIssue,
 } from '../types'
@@ -21,6 +23,8 @@ import {
   demoEnrollments,
   demoLectures,
   demoMarks,
+  demoMarkBreakdowns,
+  demoMarkComponents,
   demoProfiles,
   demoIssues,
 } from './demoData'
@@ -35,6 +39,8 @@ export interface AppData {
   attendance: AttendanceRecord[]
   assessments: Assessment[]
   marks: Mark[]
+  markComponents: MarkComponent[]
+  markBreakdowns: MarkBreakdown[]
   issues: StudentIssue[]
   announcements: Announcement[]
   auditLogs: AuditLog[]
@@ -53,6 +59,8 @@ export async function loadAppData(): Promise<AppData> {
     attendance,
     assessments,
     marks,
+    markComponents,
+    markComponentScores,
     issues,
     announcements,
     auditLogs,
@@ -65,13 +73,33 @@ export async function loadAppData(): Promise<AppData> {
     supabase.from('attendance_records').select('*, profiles(full_name)'),
     supabase.from('assessments').select('*, courses(code)'),
     supabase.from('marks').select('*, profiles(full_name)'),
+    supabase.from('mark_components').select('*, courses(code)').order('position'),
+    supabase.from('mark_component_scores').select('*, mark_components(course_id, key, courses(code)), profiles(full_name)'),
     supabase.from('student_issues').select('*, profiles(full_name)'),
     supabase.from('announcements').select('*, courses(code)'),
     supabase.from('audit_logs').select('*, profiles(full_name)').order('created_at', { ascending: false }).limit(100),
   ])
 
-  for (const result of [profiles, courses, enrollments, embeddings, lectures, attendance, assessments, marks, issues, announcements, auditLogs]) {
+  for (const result of [profiles, courses, enrollments, embeddings, lectures, attendance, assessments, marks, markComponents, markComponentScores, issues, announcements, auditLogs]) {
     if (result.error) throw result.error
+  }
+
+  const componentScoresByStudentCourse = new Map<string, any>()
+  for (const score of markComponentScores.data ?? []) {
+    const courseId = score.mark_components?.course_id ?? 'course'
+    const key = score.student_id + ':' + courseId
+    const existing = componentScoresByStudentCourse.get(key) ?? {
+      id: key,
+      student_id: score.student_id,
+      student_name: score.profiles?.full_name ?? 'Student',
+      course_id: courseId,
+      course_code: score.mark_components?.courses?.code ?? 'Course',
+      published: Boolean(score.published),
+      scores: {},
+    }
+    existing.published = existing.published || Boolean(score.published)
+    existing.scores[score.mark_components?.key ?? score.component_id] = Number(score.value)
+    componentScoresByStudentCourse.set(key, existing)
   }
 
   return {
@@ -87,6 +115,8 @@ export async function loadAppData(): Promise<AppData> {
     attendance: (attendance.data ?? []).map((record: any) => ({ ...record, student_name: record.profiles?.full_name ?? 'Student' })),
     assessments: (assessments.data ?? []).map((assessment: any) => ({ ...assessment, course_code: assessment.courses?.code ?? 'Course' })),
     marks: (marks.data ?? []).map((mark: any) => ({ ...mark, student_name: mark.profiles?.full_name ?? 'Student' })),
+    markComponents: (markComponents.data ?? []).map((column: any) => ({ ...column, course_code: column.courses?.code ?? 'Course' })),
+    markBreakdowns: Array.from(componentScoresByStudentCourse.values()),
     issues: (issues.data ?? []).map((issue: any) => ({ ...issue, student_name: issue.profiles?.full_name ?? 'Student' })),
     announcements: (announcements.data ?? []).map((announcement: any) => ({ ...announcement, course_code: announcement.courses?.code ?? 'All courses' })),
     auditLogs: (auditLogs.data ?? []).map((log: any) => ({ ...log, actor_name: log.profiles?.full_name ?? 'System' })),
@@ -103,6 +133,8 @@ export function loadDemoData(): AppData {
     attendance: demoAttendance,
     assessments: demoAssessments,
     marks: demoMarks,
+    markComponents: demoMarkComponents,
+    markBreakdowns: demoMarkBreakdowns,
     issues: demoIssues,
     announcements: demoAnnouncements,
     auditLogs: demoAuditLogs,

@@ -41,7 +41,7 @@ export function AppShell() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark"><BookOpen size={19} /></span>
+          <span className="brand-mark"><img src="/classroomops-logo.svg" alt="" /></span>
           <div>
             <strong>ClassroomOps</strong>
             <small>Facial attendance console</small>

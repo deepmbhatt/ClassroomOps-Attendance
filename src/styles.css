@@ -162,3 +162,25 @@ main { min-width: 0; padding: 2.5rem clamp(1rem, 3vw, 3rem) 5rem; }
   .role-switch { flex-direction: column; }
   .role-switch button { min-height: 42px; }
 }
+.brand-mark img { width: 100%; height: 100%; display: block; border-radius: inherit; }
+.student-main-grid { display: grid; grid-template-columns: minmax(0, .95fr) minmax(420px, 1.05fr); gap: .85rem; align-items: start; }
+.student-primary-card { min-height: 420px; }
+.day-session-list { display: grid; gap: .75rem; }
+.day-session-list details { border: 1px solid var(--line); border-radius: 8px; background: #fbfcfd; overflow: hidden; }
+.day-session-list summary { display: flex; justify-content: space-between; gap: 1rem; padding: .9rem 1rem; font-weight: 900; cursor: pointer; }
+.day-session-list summary span { color: var(--muted); font-size: .75rem; font-weight: 800; }
+.session-list { display: grid; gap: .55rem; padding: 0 .85rem .85rem; }
+.session-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .75rem; padding: .8rem; border: 1px solid #e8edf2; border-radius: 8px; background: #fff; }
+.session-item strong { display: block; overflow-wrap: anywhere; }
+.session-item small { display: block; margin-top: .2rem; }
+.session-icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 8px; background: rgb(35 100 170 / 10%); color: var(--accent); }
+.session-icon.lab { background: rgb(47 133 90 / 12%); color: var(--accent-2); }
+.table-scroll { overflow: auto; }
+.marks-table th small { display: block; color: var(--muted); font-weight: 700; margin-top: .15rem; }
+.marks-table td:not(:first-child), .marks-table th:not(:first-child) { text-align: center; }
+.marks-admin-grid { display: grid; grid-template-columns: minmax(360px, .85fr) minmax(0, 1.15fr); gap: .85rem; align-items: start; }
+.import-preview-card { margin-top: .85rem; }
+.checkbox-input { width: 20px; height: 20px; }
+.muted-copy { color: var(--muted); line-height: 1.6; }
+@media (max-width: 1120px) { .student-main-grid, .marks-admin-grid { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .session-item { grid-template-columns: auto minmax(0, 1fr); } .session-item .status-pill { grid-column: 1 / -1; justify-self: start; } }
