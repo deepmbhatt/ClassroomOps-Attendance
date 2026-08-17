@@ -414,3 +414,29 @@ create policy "published component scores read own" on public.mark_component_sco
   public.is_admin() or (student_id = auth.uid() and published)
 );
 create policy "admin manages component scores" on public.mark_component_scores for all using (public.is_admin()) with check (public.is_admin());
+
+create or replace function public.handle_new_user_profile()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, role, full_name, student_id, email, phone)
+  values (
+    new.id,
+    'student',
+    coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
+    coalesce(new.raw_user_meta_data->>'student_id', 'STU-' || left(new.id::text, 8)),
+    new.email,
+    new.raw_user_meta_data->>'phone'
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created_create_profile on auth.users;
+create trigger on_auth_user_created_create_profile
+after insert on auth.users
+for each row execute function public.handle_new_user_profile();

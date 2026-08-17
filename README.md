@@ -173,3 +173,17 @@ Use it for Vercel/project branding, favicon conversion, README previews, or coll
 - Students do not generate embeddings or run attendance recognition.
 - Attendance is online-only in v1.
 - Supabase is the persistent source of truth.
+
+## 10. Troubleshooting: 400 While Loading
+
+If the browser console says `Failed to load resource: the server responded with a status of 400`, it is usually a Supabase REST query problem.
+
+Check these first:
+
+1. Run the latest full migration SQL again in Supabase SQL Editor.
+2. Confirm these tables exist: `profiles`, `courses`, `lecture_sessions`, `mark_components`, `mark_component_scores`.
+3. Confirm Vercel env vars are correct and redeploy after changing them.
+4. In browser DevTools, open `Network`, click the failed `rest/v1/...` request, and read the JSON error message.
+5. Make sure `VITE_DEV_AUTH_BYPASS=false` only when Supabase is fully configured.
+
+The frontend now avoids nested Supabase relationship selects, which removes the most common PostgREST 400 cause.
