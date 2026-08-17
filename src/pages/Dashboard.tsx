@@ -10,7 +10,9 @@ export function Dashboard() {
   const query = useQuery({ queryKey: ['app-data'], queryFn: loadAppData })
   if (query.isLoading) return <Spinner />
   if (!query.data) return null
-  return auth.role === 'admin' ? <AdminDashboard data={query.data} /> : <StudentDashboard data={query.data} />
+  return auth.role === 'admin'
+    ? <AdminDashboard data={query.data} />
+    : <StudentDashboard data={query.data} studentId={auth.session?.user.id} />
 }
 
 function AdminDashboard({ data }: { data: Awaited<ReturnType<typeof loadAppData>> }) {
@@ -62,8 +64,28 @@ function AdminDashboard({ data }: { data: Awaited<ReturnType<typeof loadAppData>
   )
 }
 
-function StudentDashboard({ data }: { data: Awaited<ReturnType<typeof loadAppData>> }) {
-  const student = data.profiles.find((profile) => profile.role === 'student')!
+function StudentDashboard({
+  data,
+  studentId,
+}: {
+  data: Awaited<ReturnType<typeof loadAppData>>
+  studentId?: string
+}) {
+  const student = data.profiles.find((profile) => profile.id === studentId)
+
+  if (!student) {
+    return (
+      <>
+        <PageHeader eyebrow="Student portal" title="Profile is being prepared">
+          Your login worked, but your student profile is not visible yet. Refresh once after signup, or ask the admin to confirm your profile row exists in Supabase.
+        </PageHeader>
+        <Card>
+          <div className="section-title"><div><p className="eyebrow">Account setup</p><h2>Waiting for student profile</h2></div></div>
+          <p className="muted-copy">New accounts are always student accounts. If this message stays, run the profile check SQL in Supabase for this email and create the missing profile row.</p>
+        </Card>
+      </>
+    )
+  }
   const enrollment = data.enrollments.find((item) => item.student_id === student.id)
   const myAttendance = data.attendance.filter((record) => record.student_id === student.id)
   const present = myAttendance.filter((record) => record.status === 'present' || record.status === 'late').length
