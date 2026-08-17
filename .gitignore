@@ -11,3 +11,4 @@ playwright.config.js
 playwright.config.d.ts
 .env
 .DS_Store
+
