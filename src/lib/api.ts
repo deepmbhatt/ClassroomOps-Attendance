@@ -353,3 +353,58 @@ export async function failEnrollmentProcessing(enrollmentId: string, reason: str
     .eq('id', enrollmentId)
   if (error) throw error
 }
+
+
+export async function createLectureSession(input: { courseId: string; title: string; startedAt: string }) {
+  if (devBypass) return { id: 'lecture-demo', course_id: input.courseId, title: input.title, started_at: input.startedAt, status: 'active' }
+  const supabase = requireSupabase()
+  const { data: userData } = await supabase.auth.getUser()
+  const { data, error } = await supabase
+    .from('lecture_sessions')
+    .insert({
+      course_id: input.courseId,
+      title: input.title,
+      started_at: input.startedAt,
+      started_by: userData.user?.id ?? null,
+      status: 'active',
+    })
+    .select('*')
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function closeLectureSession(lectureId: string) {
+  if (devBypass) return
+  const supabase = requireSupabase()
+  const { error } = await supabase
+    .from('lecture_sessions')
+    .update({ status: 'closed', ended_at: new Date().toISOString() })
+    .eq('id', lectureId)
+  if (error) throw error
+}
+
+export async function markAttendanceRecord(input: {
+  lectureId: string
+  studentId: string
+  status: 'present' | 'absent' | 'late' | 'excused' | 'manual_review'
+  confidence?: number
+  source: 'face' | 'manual' | 'import'
+  reason?: string
+  markedAt?: string
+}) {
+  if (devBypass) return
+  const supabase = requireSupabase()
+  const { data: userData } = await supabase.auth.getUser()
+  const { error } = await supabase.from('attendance_records').upsert({
+    lecture_id: input.lectureId,
+    student_id: input.studentId,
+    status: input.status,
+    confidence: input.confidence ?? null,
+    source: input.source,
+    reason: input.reason ?? null,
+    marked_by: userData.user?.id ?? null,
+    marked_at: input.markedAt ?? new Date().toISOString(),
+  }, { onConflict: 'lecture_id,student_id' })
+  if (error) throw error
+}

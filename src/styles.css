@@ -187,3 +187,16 @@ main { min-width: 0; padding: 2.5rem clamp(1rem, 3vw, 3rem) 5rem; }
 .account-page { max-width: 760px; margin: 0 auto; }
 .account-card { max-width: 560px; }
 .stack-form { display: grid; gap: 1rem; }
+
+.attendance-terminal-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 420px); gap: .85rem; align-items: start; }
+.terminal-camera-card { min-height: calc(100vh - 180px); display: grid; align-content: start; gap: 1rem; }
+.attendance-controls { display: grid; grid-template-columns: minmax(220px, .8fr) minmax(220px, 1fr) minmax(190px, .7fr); gap: .75rem; }
+.live-camera-stage { position: relative; min-height: min(68vh, 720px); aspect-ratio: 16 / 9; overflow: hidden; border-radius: 8px; background: #101820; display: grid; place-items: center; }
+.live-camera-stage video { width: 100%; height: 100%; object-fit: cover; }
+.attendance-side-panel { display: grid; gap: .85rem; position: sticky; top: 1rem; }
+.marked-list { display: grid; gap: .55rem; max-height: 36vh; overflow: auto; }
+.marked-list article { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .25rem .55rem; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: .7rem; background: #fbfcfd; }
+.marked-list article small { grid-column: 1 / -1; }
+.manual-button-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; margin: .85rem 0; }
+@media (max-width: 1180px) { .attendance-terminal-layout { grid-template-columns: 1fr; } .attendance-side-panel { position: static; } }
+@media (max-width: 760px) { .attendance-controls { grid-template-columns: 1fr; } .live-camera-stage { min-height: 320px; } .manual-button-grid { grid-template-columns: 1fr; } }

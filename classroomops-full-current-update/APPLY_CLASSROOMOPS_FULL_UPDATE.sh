@@ -14,11 +14,13 @@ for path in \
   src/auth.tsx \
   src/components/Layout.tsx \
   src/lib/api.ts \
+  src/lib/attendance.ts \
   src/lib/demoData.ts \
   src/lib/faceEngine.ts \
   src/lib/importValidation.ts \
   src/lib/supabase.ts \
   src/pages/AdminStudents.tsx \
+  src/pages/AttendanceTerminal.tsx \
   src/pages/BiometricProcessing.tsx \
   src/pages/ChangePassword.tsx \
   src/pages/Dashboard.tsx \

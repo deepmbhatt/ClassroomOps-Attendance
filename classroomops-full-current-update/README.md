@@ -238,3 +238,17 @@ supabase/migrations/202608180004_face_enrollment_upload_flow.sql
 ## Optional ONNX Face Model
 
 `VITE_FACE_EMBEDDING_MODEL` is optional. Only set it when a real ONNX file exists in `public/models/face-embedding.onnx` or at another public URL. If the model is missing or invalid, admin biometric processing stops with a clear model configuration error instead of marking enrollments ready with invalid embeddings.
+
+
+## Live Attendance Terminal
+
+The admin attendance terminal uses the classroom/admin camera only. Set the course, title, and date/time, then start the camera. The page performs a light once-per-second presence check, captures a short burst when someone is in the active zone, compares against ready embeddings, and writes one attendance record per student per lecture.
+
+Manual controls are available beside the camera: select a student and click `Present`, `Absent`, `Late`, or `Excused`. Keyboard shortcuts work after selecting a student: `P` marks present and `A` marks absent. CSV import supports past/manual corrections with:
+
+```text
+Student ID,Status,Marked At,Reason
+CSE001,present,2026-08-18T09:00:00+05:30,manual upload
+```
+
+Use `Download` at the end to export the final attendance sheet for the selected session.
