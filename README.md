@@ -102,7 +102,8 @@ Set:
 VITE_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
 VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
 VITE_DEV_AUTH_BYPASS=false
-VITE_FACE_EMBEDDING_MODEL=/models/face-embedding.onnx
+# Optional: only set this if public/models/face-embedding.onnx exists
+# VITE_FACE_EMBEDDING_MODEL=/models/face-embedding.onnx
 ```
 
 Find values in Supabase:
@@ -139,7 +140,8 @@ If your GitHub repo root is already `classroom-attendance-platform`, leave Root 
 VITE_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
 VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
 VITE_DEV_AUTH_BYPASS=false
-VITE_FACE_EMBEDDING_MODEL=/models/face-embedding.onnx
+# Optional: only set this if public/models/face-embedding.onnx exists
+# VITE_FACE_EMBEDDING_MODEL=/models/face-embedding.onnx
 ```
 
 6. Deploy.
@@ -231,3 +233,8 @@ Run this migration for existing Supabase projects:
 ```text
 supabase/migrations/202608180004_face_enrollment_upload_flow.sql
 ```
+
+
+## Optional ONNX Face Model
+
+`VITE_FACE_EMBEDDING_MODEL` is optional. Only set it when a real ONNX file exists in `public/models/face-embedding.onnx` or at another public URL. If the model is missing or invalid, admin biometric processing stops with a clear model configuration error instead of marking enrollments ready with invalid embeddings.

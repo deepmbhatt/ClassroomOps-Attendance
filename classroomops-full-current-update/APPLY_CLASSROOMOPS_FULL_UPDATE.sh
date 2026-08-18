@@ -7,6 +7,7 @@ cd "$ROOT"
 rm -rf .openai
 
 for path in \
+  .env.example \
   README.md \
   public/classroomops-logo.svg \
   src/App.tsx \
@@ -14,6 +15,7 @@ for path in \
   src/components/Layout.tsx \
   src/lib/api.ts \
   src/lib/demoData.ts \
+  src/lib/faceEngine.ts \
   src/lib/importValidation.ts \
   src/lib/supabase.ts \
   src/pages/AdminStudents.tsx \
