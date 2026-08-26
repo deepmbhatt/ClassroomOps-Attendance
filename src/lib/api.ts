@@ -4,6 +4,7 @@ import type {
   AttendanceRecord,
   AuditLog,
   Course,
+  CourseMembership,
   FaceEmbedding,
   FaceEnrollment,
   LectureSession,
@@ -34,6 +35,7 @@ import { devBypass, requireSupabase } from './supabase'
 export interface AppData {
   profiles: Profile[]
   courses: Course[]
+  courseMemberships: CourseMembership[]
   enrollments: FaceEnrollment[]
   embeddings: FaceEmbedding[]
   lectures: LectureSession[]
@@ -54,6 +56,7 @@ export async function loadAppData(): Promise<AppData> {
   const [
     profiles,
     courses,
+    courseMemberships,
     enrollments,
     embeddings,
     lectures,
@@ -68,6 +71,7 @@ export async function loadAppData(): Promise<AppData> {
   ] = await Promise.all([
     supabase.from('profiles').select('*'),
     supabase.from('courses').select('*'),
+    supabase.from('course_memberships').select('*').is('deleted_at', null),
     supabase.from('face_enrollments').select('*'),
     supabase.from('face_embeddings').select('*'),
     supabase.from('lecture_sessions').select('*'),
@@ -81,14 +85,22 @@ export async function loadAppData(): Promise<AppData> {
     supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(100),
   ])
 
-  for (const result of [profiles, courses, enrollments, embeddings, lectures, attendance, assessments, marks, markComponents, markComponentScores, issues, announcements, auditLogs]) {
+  for (const result of [profiles, courses, courseMemberships, enrollments, embeddings, lectures, attendance, assessments, marks, markComponents, markComponentScores, issues, announcements, auditLogs]) {
     if (result.error) throw result.error
   }
 
   const profileById = new Map((profiles.data ?? []).map((profile: any) => [profile.id, profile]))
   const courseById = new Map((courses.data ?? []).map((course: any) => [course.id, course]))
   const componentById = new Map((markComponents.data ?? []).map((component: any) => [component.id, component]))
+  const membershipRows = (courseMemberships.data ?? []) as CourseMembership[]
   const membershipCountByCourse = new Map<string, number>()
+  const courseCodesByStudent = new Map<string, string[]>()
+  for (const membership of membershipRows) {
+    const course = courseById.get(membership.course_id)
+    if (!course) continue
+    membershipCountByCourse.set(membership.course_id, (membershipCountByCourse.get(membership.course_id) ?? 0) + 1)
+    courseCodesByStudent.set(membership.student_id, [...(courseCodesByStudent.get(membership.student_id) ?? []), course.code])
+  }
 
   const componentScoresByStudentCourse = new Map<string, any>()
   for (const score of markComponentScores.data ?? []) {
@@ -112,10 +124,11 @@ export async function loadAppData(): Promise<AppData> {
   return {
     profiles: profiles.data as Profile[],
     courses: (courses.data ?? []).map((course: any) => ({ ...course, enrolled_count: membershipCountByCourse.get(course.id) ?? 0 })),
+    courseMemberships: membershipRows,
     enrollments: (enrollments.data ?? []).map((enrollment: any) => ({
       ...enrollment,
       student_name: profileById.get(enrollment.student_id)?.full_name ?? 'Student',
-      course_codes: [],
+      course_codes: courseCodesByStudent.get(enrollment.student_id) ?? [],
     })),
     embeddings: (embeddings.data ?? []).map((embedding: any) => ({ ...embedding, vector: embedding.embedding })),
     lectures: (lectures.data ?? []).map((lecture: any) => ({ ...lecture, course_code: courseById.get(lecture.course_id)?.code ?? 'Course' })),
@@ -134,6 +147,7 @@ export function loadDemoData(): AppData {
   return {
     profiles: demoProfiles,
     courses: demoCourses,
+    courseMemberships: [],
     enrollments: demoEnrollments,
     embeddings: demoEmbeddings,
     lectures: demoLectures,
@@ -406,5 +420,127 @@ export async function markAttendanceRecord(input: {
     marked_by: userData.user?.id ?? null,
     marked_at: input.markedAt ?? new Date().toISOString(),
   }, { onConflict: 'lecture_id,student_id' })
+  if (error) throw error
+}
+
+
+export async function upsertCourse(input: { id?: string; code: string; title: string; term: string; active: boolean }) {
+  if (devBypass) return
+  const supabase = requireSupabase()
+  const payload = {
+    ...(input.id ? { id: input.id } : {}),
+    code: input.code.trim().toUpperCase(),
+    title: input.title.trim(),
+    term: input.term.trim(),
+    active: input.active,
+    deleted_at: null,
+  }
+  const { error } = await supabase.from('courses').upsert(payload, { onConflict: input.id ? 'id' : 'code' })
+  if (error) throw error
+}
+
+export async function softDeleteCourse(courseId: string) {
+  if (devBypass) return
+  const supabase = requireSupabase()
+  const { error } = await supabase.from('courses').update({ active: false, deleted_at: new Date().toISOString() }).eq('id', courseId)
+  if (error) throw error
+}
+
+export async function updateStudentProfile(input: { id: string; studentId: string; fullName: string; email: string; phone?: string; mustChangePassword?: boolean }) {
+  if (devBypass) return
+  const supabase = requireSupabase()
+  const { error } = await supabase
+    .from('profiles')
+    .update({
+      student_id: input.studentId.trim(),
+      full_name: input.fullName.trim(),
+      email: input.email.trim().toLowerCase(),
+      phone: input.phone?.trim() || null,
+      must_change_password: Boolean(input.mustChangePassword),
+    })
+    .eq('id', input.id)
+  if (error) throw error
+}
+
+export async function setStudentCourseCodes(studentId: string, courseCodes: string[]) {
+  if (devBypass) return
+  const supabase = requireSupabase()
+  const normalizedCodes = courseCodes.map((code) => code.trim().toUpperCase()).filter(Boolean)
+  const { data: courses, error: courseError } = await supabase.from('courses').select('id, code').in('code', normalizedCodes)
+  if (courseError) throw courseError
+  const foundCodes = new Set((courses ?? []).map((course: any) => String(course.code).toUpperCase()))
+  const missing = normalizedCodes.filter((code) => !foundCodes.has(code))
+  if (missing.length) throw new Error(`Unknown course code(s): ${missing.join(', ')}`)
+
+  const { error: clearError } = await supabase.from('course_memberships').update({ deleted_at: new Date().toISOString() }).eq('student_id', studentId)
+  if (clearError) throw clearError
+  const memberships = (courses ?? []).map((course: any) => ({ course_id: course.id, student_id: studentId, deleted_at: null }))
+  if (memberships.length) {
+    const { error } = await supabase.from('course_memberships').upsert(memberships, { onConflict: 'course_id,student_id' })
+    if (error) throw error
+  }
+}
+
+export async function softDeleteStudent(studentId: string) {
+  if (devBypass) return
+  const supabase = requireSupabase()
+  const { error } = await supabase.from('profiles').update({ deleted_at: new Date().toISOString() }).eq('id', studentId)
+  if (error) throw error
+}
+
+export async function updateExistingStudents(rows: Array<{ studentId: string; fullName: string; email: string; phone: string; courseCodes: string[] }>, profiles: Profile[]) {
+  for (const row of rows) {
+    const profile = profiles.find((item) => item.student_id === row.studentId || item.email.toLowerCase() === row.email.toLowerCase())
+    if (!profile) continue
+    await updateStudentProfile({ id: profile.id, studentId: row.studentId, fullName: row.fullName, email: row.email, phone: row.phone, mustChangePassword: profile.must_change_password })
+    await setStudentCourseCodes(profile.id, row.courseCodes)
+  }
+}
+
+export async function upsertAssessment(input: { id?: string; courseId: string; title: string; maxMarks: number; published: boolean; academicYear?: string; semester?: string; assessmentType?: string }) {
+  if (devBypass) return { id: input.id ?? 'assessment-demo' }
+  const supabase = requireSupabase()
+  const { data, error } = await supabase
+    .from('assessments')
+    .upsert({
+      ...(input.id ? { id: input.id } : {}),
+      course_id: input.courseId,
+      title: input.title.trim(),
+      max_marks: input.maxMarks,
+      published: input.published,
+      academic_year: input.academicYear?.trim() || null,
+      semester: input.semester?.trim() || null,
+      assessment_type: input.assessmentType?.trim() || null,
+    }, { onConflict: input.id ? 'id' : 'course_id,title' })
+    .select('id')
+    .single()
+  if (error) throw error
+  return data as { id: string }
+}
+
+export async function upsertMarks(input: { assessmentId: string; rows: Array<{ studentId: string; value: number }>; published: boolean; profiles: Profile[] }) {
+  if (devBypass) return
+  const supabase = requireSupabase()
+  const { data: userData } = await supabase.auth.getUser()
+  const payload = input.rows.map((row) => {
+    const profile = input.profiles.find((item) => item.student_id === row.studentId)
+    if (!profile) throw new Error(`Student not found: ${row.studentId}`)
+    return {
+      assessment_id: input.assessmentId,
+      student_id: profile.id,
+      value: row.value,
+      published: input.published,
+      updated_by: userData.user?.id ?? null,
+    }
+  })
+  if (!payload.length) return
+  const { error } = await supabase.from('marks').upsert(payload, { onConflict: 'assessment_id,student_id' })
+  if (error) throw error
+}
+
+export async function deleteMark(markId: string) {
+  if (devBypass) return
+  const supabase = requireSupabase()
+  const { error } = await supabase.from('marks').delete().eq('id', markId)
   if (error) throw error
 }

@@ -200,3 +200,16 @@ main { min-width: 0; padding: 2.5rem clamp(1rem, 3vw, 3rem) 5rem; }
 .manual-button-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; margin: .85rem 0; }
 @media (max-width: 1180px) { .attendance-terminal-layout { grid-template-columns: 1fr; } .attendance-side-panel { position: static; } }
 @media (max-width: 760px) { .attendance-controls { grid-template-columns: 1fr; } .live-camera-stage { min-height: 320px; } .manual-button-grid { grid-template-columns: 1fr; } }
+
+.admin-data-grid { display: grid; grid-template-columns: minmax(360px, .8fr) minmax(0, 1.2fr); gap: .85rem; align-items: start; margin-bottom: .85rem; }
+.editable-table input, .editable-table select { min-width: 120px; padding: .55rem .6rem; font-size: .78rem; }
+.editable-table td { padding: .45rem; }
+.editable-table th { padding: .65rem .5rem; }
+.row-actions { display: inline-flex; align-items: center; gap: .35rem; }
+.row-actions button, .mark-cell button { width: 32px; height: 32px; display: inline-grid; place-items: center; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); }
+.row-actions button:hover, .mark-cell button:hover { border-color: var(--accent); color: var(--accent); }
+.inline-check { display: flex; align-items: center; gap: .55rem; min-height: 44px; }
+.inline-check input { width: 18px; height: 18px; }
+.mark-cell { display: grid; grid-template-columns: minmax(72px, 1fr) 32px 32px; gap: .3rem; align-items: center; min-width: 150px; }
+.mark-cell input { text-align: center; }
+@media (max-width: 1120px) { .admin-data-grid { grid-template-columns: 1fr; } }

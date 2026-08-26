@@ -39,6 +39,17 @@ export function parseCsv(text: string) {
     .map(splitCsvLine)
 }
 
+export async function readTabularFile(file: File) {
+  const lowerName = file.name.toLowerCase()
+  if (lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls')) {
+    const XLSX = await import('xlsx')
+    const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' })
+    const sheet = workbook.Sheets[workbook.SheetNames[0]]
+    return XLSX.utils.sheet_to_csv(sheet)
+  }
+  return file.text()
+}
+
 function normalizeHeader(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
 }
@@ -48,7 +59,7 @@ function getCell(row: string[], headerMap: Map<string, number>, aliases: string[
   return index === undefined ? '' : row[index] ?? ''
 }
 
-export function previewStudentImport(text: string, existingStudents: KnownStudent[]): StudentImportPreview {
+export function previewStudentImport(text: string, existingStudents: KnownStudent[], options: { allowExisting?: boolean } = {}): StudentImportPreview {
   const rows = parseCsv(text)
   const [header = [], ...body] = rows
   const headerMap = new Map(header.map((cell, index) => [normalizeHeader(cell), index]))
@@ -76,11 +87,12 @@ export function previewStudentImport(text: string, existingStudents: KnownStuden
     if (!studentId) messages.push('Student ID is required')
     if (!fullName) messages.push('Full name is required')
     if (!/^\S+@\S+\.\S+$/.test(email)) messages.push('Valid email is required')
-    if (!temporaryPassword || temporaryPassword.length < 8) messages.push('Temporary password must be at least 8 characters')
+    const isExisting = (studentId && existingByStudentId.has(studentId)) || (email && existingByEmail.has(email))
+    if (!isExisting && (!temporaryPassword || temporaryPassword.length < 8)) messages.push('Temporary password must be at least 8 characters')
     if (studentId && seenStudentIds.has(studentId)) messages.push('Duplicate Student ID in file')
     if (email && seenEmails.has(email)) messages.push('Duplicate email in file')
-    if (studentId && existingByStudentId.has(studentId)) messages.push('Student ID already exists')
-    if (email && existingByEmail.has(email)) messages.push('Email already exists')
+    if (!options.allowExisting && studentId && existingByStudentId.has(studentId)) messages.push('Student ID already exists')
+    if (!options.allowExisting && email && existingByEmail.has(email)) messages.push('Email already exists')
 
     if (studentId) seenStudentIds.add(studentId)
     if (email) seenEmails.add(email)

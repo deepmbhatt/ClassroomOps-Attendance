@@ -35,6 +35,13 @@ export interface Course {
   enrolled_count: number
 }
 
+export interface CourseMembership {
+  id: string
+  course_id: string
+  student_id: string
+  deleted_at?: string
+}
+
 export interface FaceEnrollment {
   id: string
   student_id: string
