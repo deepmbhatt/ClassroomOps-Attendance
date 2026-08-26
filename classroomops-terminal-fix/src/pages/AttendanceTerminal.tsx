@@ -5,7 +5,8 @@ import { Card, IconButton, OnlineGate, PageHeader, StatusPill } from '../compone
 import { createLectureSession, closeLectureSession, loadAppData, markAttendanceRecord } from '../lib/api'
 import { canInsertAttendance, confidenceLabel, normalizeAttendanceStatus } from '../lib/attendance'
 import { cosineSimilarity, createEmbeddingFromCanvas } from '../lib/faceEngine'
-import type { AttendanceStatus, Profile } from '../types'
+import type { AppData } from '../lib/api'
+import type { AttendanceStatus } from '../types'
 
 const attendanceCsvFormat = `Student ID,Status,Marked At,Reason
 CSE001,present,2026-08-18T09:00:00+05:30,manual upload
@@ -24,6 +25,8 @@ export function AttendanceTerminal() {
   const scanningRef = useRef(false)
   const busyRef = useRef(false)
   const previousSampleRef = useRef<number | null>(null)
+  const currentLectureIdRef = useRef('')
+  const latestDataRef = useRef<AppData | undefined>(data)
   const [courseId, setCourseId] = useState(data?.courses[0]?.id ?? 'course-1')
   const [lectureId, setLectureId] = useState('')
   const [sessionTitle, setSessionTitle] = useState('Lecture attendance')
@@ -32,6 +35,7 @@ export function AttendanceTerminal() {
   const [status, setStatus] = useState('Camera stopped')
   const [manualCsv, setManualCsv] = useState(attendanceCsvFormat)
   const [error, setError] = useState('')
+  const [cameraRunning, setCameraRunning] = useState(false)
 
   const course = data?.courses.find((item) => item.id === courseId) ?? data?.courses[0]
   const activeLecture = data?.lectures.find((lecture) => lecture.id === lectureId)
@@ -41,6 +45,14 @@ export function AttendanceTerminal() {
   const selectedStudent = students.find((student) => student.id === selectedStudentId) ?? students[0]
   const records = (data?.attendance ?? []).filter((record) => !effectiveLectureId || record.lecture_id === effectiveLectureId)
   const readyEmbeddings = (data?.embeddings ?? []).filter((embedding) => embedding.vector?.length)
+
+  useEffect(() => {
+    latestDataRef.current = data
+  }, [data])
+
+  useEffect(() => {
+    currentLectureIdRef.current = effectiveLectureId
+  }, [effectiveLectureId])
 
   useEffect(() => {
     if (!selectedStudentId && students[0]) setSelectedStudentId(students[0].id)
@@ -54,30 +66,51 @@ export function AttendanceTerminal() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  })
+  }, [selectedStudent?.id, effectiveLectureId, sessionDateTime])
 
   async function ensureSession() {
-    if (activeLecture?.id) return activeLecture.id
+    if (activeLecture?.id) {
+      currentLectureIdRef.current = activeLecture.id
+      setStatus(`Session ready: ${activeLecture.title}`)
+      return activeLecture.id
+    }
     if (!course?.id) throw new Error('Select a course before starting attendance.')
+    setStatus('Creating attendance session...')
     const lecture = await createLectureSession({
       courseId: course.id,
       title: sessionTitle,
       startedAt: new Date(sessionDateTime).toISOString(),
     })
     setLectureId(lecture.id)
+    currentLectureIdRef.current = lecture.id
     await queryClient.invalidateQueries({ queryKey: ['app-data'] })
+    setStatus(`Session ready: ${lecture.title}`)
     return lecture.id as string
   }
 
   async function startCamera() {
     setError('')
-    await ensureSession()
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
-    streamRef.current = stream
-    if (videoRef.current) videoRef.current.srcObject = stream
-    scanningRef.current = true
-    setStatus('Live scan running')
-    void scanLoop()
+    try {
+      await ensureSession()
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('Camera access is unavailable. Open the app on HTTPS or localhost and allow camera permission.')
+      }
+      setStatus('Requesting camera permission...')
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        await videoRef.current.play().catch(() => undefined)
+      }
+      scanningRef.current = true
+      setCameraRunning(true)
+      setStatus('Live scan running')
+      void scanLoop()
+    } catch (nextError) {
+      stopCamera()
+      setError(nextError instanceof Error ? nextError.message : 'Camera could not start.')
+      setStatus('Camera could not start')
+    }
   }
 
   function stopCamera() {
@@ -85,6 +118,7 @@ export function AttendanceTerminal() {
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
     if (videoRef.current) videoRef.current.srcObject = null
+    setCameraRunning(false)
     setStatus('Camera stopped')
   }
 
@@ -123,7 +157,7 @@ export function AttendanceTerminal() {
   async function scanLoop() {
     while (scanningRef.current) {
       await new Promise((resolve) => window.setTimeout(resolve, 1000))
-      if (busyRef.current || !activeLecture?.id && !lectureId) continue
+      if (busyRef.current || !currentLectureIdRef.current) continue
       const probe = captureCanvas(0.28)
       if (!probe) continue
       try {
@@ -135,7 +169,10 @@ export function AttendanceTerminal() {
   }
 
   async function recognizeBurst() {
-    if (!readyEmbeddings.length) {
+    const latestData = latestDataRef.current
+    const embeddings = (latestData?.embeddings ?? []).filter((embedding) => embedding.vector?.length)
+    const latestStudents = latestData?.profiles.filter((profile) => profile.role === 'student') ?? []
+    if (!embeddings.length) {
       setStatus('No ready embeddings loaded')
       return
     }
@@ -152,15 +189,15 @@ export function AttendanceTerminal() {
       }
       if (!vectors.length) return
       const queryVector = averageVectors(vectors)
-      const best = readyEmbeddings
+      const best = embeddings
         .map((embedding) => ({ embedding, score: cosineSimilarity(queryVector, embedding.vector) }))
         .sort((left, right) => right.score - left.score)[0]
       if (!best || best.score < recognitionThreshold) {
         setStatus(`Unknown face (${Math.round((best?.score ?? 0) * 100)}%)`)
         return
       }
-      const lecture = await ensureSession()
-      if (!canInsertAttendance(data?.attendance ?? [], lecture, best.embedding.student_id)) {
+      const lecture = currentLectureIdRef.current || await ensureSession()
+      if (!canInsertAttendance(latestData?.attendance ?? [], lecture, best.embedding.student_id)) {
         setStatus('Already marked for this session')
         return
       }
@@ -172,7 +209,7 @@ export function AttendanceTerminal() {
         source: 'face',
         reason: 'Live camera recognition',
       })
-      const profile = students.find((student) => student.id === best.embedding.student_id)
+      const profile = latestStudents.find((student) => student.id === best.embedding.student_id)
       setStatus(`Marked ${profile?.full_name ?? 'student'} present`)
       await queryClient.invalidateQueries({ queryKey: ['app-data'] })
     } finally {
@@ -189,45 +226,85 @@ export function AttendanceTerminal() {
 
   async function markManual(nextStatus: AttendanceStatus) {
     if (!selectedStudent?.id) return
-    const lecture = await ensureSession()
-    await markAttendanceRecord({
-      lectureId: lecture,
-      studentId: selectedStudent.id,
-      status: nextStatus,
-      source: 'manual',
-      reason: 'Manual terminal entry',
-      markedAt: new Date(sessionDateTime).toISOString(),
-    })
-    await queryClient.invalidateQueries({ queryKey: ['app-data'] })
-    setStatus(`${selectedStudent.full_name} marked ${nextStatus}`)
+    setError('')
+    try {
+      const lecture = await ensureSession()
+      await markAttendanceRecord({
+        lectureId: lecture,
+        studentId: selectedStudent.id,
+        status: nextStatus,
+        source: 'manual',
+        reason: 'Manual terminal entry',
+        markedAt: new Date(sessionDateTime).toISOString(),
+      })
+      await queryClient.invalidateQueries({ queryKey: ['app-data'] })
+      setStatus(`${selectedStudent.full_name} marked ${nextStatus}`)
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'Manual attendance update failed.')
+      setStatus('Manual mark failed')
+    }
   }
 
   async function importAttendance() {
-    const lecture = await ensureSession()
-    const lines = manualCsv.trim().split(/\r?\n/)
-    const [headerLine, ...rows] = lines
-    const headers = headerLine.split(',').map((cell) => cell.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_'))
-    const studentIndex = headers.indexOf('student_id')
-    const statusIndex = headers.indexOf('status')
-    const markedAtIndex = headers.indexOf('marked_at')
-    const reasonIndex = headers.indexOf('reason')
-    let imported = 0
-    for (const rowLine of rows) {
-      const row = rowLine.split(',').map((cell) => cell.trim())
-      const profile = students.find((student) => student.student_id === row[studentIndex])
-      if (!profile) continue
-      await markAttendanceRecord({
-        lectureId: lecture,
-        studentId: profile.id,
-        status: normalizeAttendanceStatus(row[statusIndex]),
-        source: 'import',
-        reason: row[reasonIndex] || 'CSV import',
-        markedAt: row[markedAtIndex] || new Date(sessionDateTime).toISOString(),
-      })
-      imported += 1
+    setError('')
+    try {
+      const lecture = await ensureSession()
+      const lines = manualCsv.trim().split(/\r?\n/)
+      const [headerLine, ...rows] = lines
+      const headers = headerLine.split(',').map((cell) => cell.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_'))
+      const studentIndex = headers.indexOf('student_id')
+      const statusIndex = headers.indexOf('status')
+      const markedAtIndex = headers.indexOf('marked_at')
+      const reasonIndex = headers.indexOf('reason')
+      if (studentIndex === -1 || statusIndex === -1) throw new Error('CSV must include Student ID and Status columns.')
+      let imported = 0
+      for (const rowLine of rows) {
+        const row = rowLine.split(',').map((cell) => cell.trim())
+        const profile = students.find((student) => student.student_id === row[studentIndex])
+        if (!profile) continue
+        await markAttendanceRecord({
+          lectureId: lecture,
+          studentId: profile.id,
+          status: normalizeAttendanceStatus(row[statusIndex]),
+          source: 'import',
+          reason: row[reasonIndex] || 'CSV import',
+          markedAt: row[markedAtIndex] || new Date(sessionDateTime).toISOString(),
+        })
+        imported += 1
+      }
+      await queryClient.invalidateQueries({ queryKey: ['app-data'] })
+      setStatus(`${imported} attendance rows imported`)
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'CSV attendance import failed.')
+      setStatus('CSV import failed')
     }
-    await queryClient.invalidateQueries({ queryKey: ['app-data'] })
-    setStatus(`${imported} attendance rows imported`)
+  }
+
+  async function saveSession() {
+    setError('')
+    try {
+      await ensureSession()
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'Could not create attendance session.')
+      setStatus('Session save failed')
+    }
+  }
+
+  async function closeSession() {
+    setError('')
+    try {
+      const lecture = currentLectureIdRef.current || activeLecture?.id
+      if (!lecture) throw new Error('Start or select a session before closing it.')
+      await closeLectureSession(lecture)
+      currentLectureIdRef.current = ''
+      setLectureId('')
+      stopCamera()
+      await queryClient.invalidateQueries({ queryKey: ['app-data'] })
+      setStatus('Session closed')
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'Could not close attendance session.')
+      setStatus('Close session failed')
+    }
   }
 
   function exportSheet() {
@@ -280,15 +357,15 @@ export function AttendanceTerminal() {
               <div className="face-zone" />
             </div>
             <div className="terminal-status">
-              <StatusPill tone={streamRef.current ? 'good' : 'neutral'}>{streamRef.current ? 'scanning every 1s' : 'camera off'}</StatusPill>
+              <StatusPill tone={cameraRunning ? 'good' : 'neutral'}>{cameraRunning ? 'scanning every 1s' : 'camera off'}</StatusPill>
               <span>{readyEmbeddings.length} ready embeddings loaded</span>
               {error ? <span className="form-error">{error}</span> : null}
             </div>
             <div className="toolbar-actions">
-              <IconButton className="primary" onClick={() => void ensureSession()}><Monitor size={16} />Start/session save</IconButton>
+              <IconButton className="primary" onClick={() => void saveSession()}><Monitor size={16} />Start/session save</IconButton>
               <IconButton className="success" onClick={() => void startCamera()}><Play size={16} />Start camera</IconButton>
               <IconButton onClick={stopCamera}><Square size={16} />Stop</IconButton>
-              <IconButton onClick={() => activeLecture?.id && void closeLectureSession(activeLecture.id)}><CheckCircle2 size={16} />Close session</IconButton>
+              <IconButton onClick={() => void closeSession()}><CheckCircle2 size={16} />Close session</IconButton>
             </div>
           </Card>
 
