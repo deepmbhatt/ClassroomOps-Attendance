@@ -2,7 +2,7 @@ import { BookOpen, CheckCircle2, FileDown, FileSpreadsheet, Plus, Save, Search, 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChangeEvent, useMemo, useState } from 'react'
 import { Card, EmptyState, IconButton, PageHeader, SectionTabs, StatusPill } from '../components/Layout'
-import { approveStudentRegistration, bulkCreateStudents, loadAppData, rejectStudentRegistration, setStudentCourseCodes, softDeleteCourse, softDeleteStudent, updateExistingStudents, updateStudentProfile, upsertCourse } from '../lib/api'
+import { approveStudentRegistration, bulkCreateStudents, loadAppData, rejectStudentRegistration, setStudentCourseCodes, syncMissingAuthProfiles, softDeleteCourse, softDeleteStudent, updateExistingStudents, updateStudentProfile, upsertCourse } from '../lib/api'
 import { previewStudentImport, readTabularFile } from '../lib/importValidation'
 import type { Course, Profile, StudentImportPreviewRow } from '../types'
 
@@ -33,7 +33,7 @@ export function AdminStudents() {
   const [courseEdits, setCourseEdits] = useState<Record<string, EditableCourse>>({})
 
   const courses = data?.courses ?? []
-  const allStudents = data?.profiles.filter((profile) => profile.role === 'student') ?? []
+  const allStudents = useMemo(() => data?.profiles.filter((profile) => profile.role === 'student') ?? [], [data])
   const pendingStudents = allStudents.filter((profile) => profile.approval_status === 'pending' && !profile.deleted_at)
   const students = allStudents.filter((profile) => profile.approval_status !== 'pending' && profile.approval_status !== 'rejected' && !profile.deleted_at)
   const memberships = data?.courseMemberships ?? []
@@ -124,6 +124,19 @@ export function AdminStudents() {
     const file = event.target.files?.[0]
     if (!file) return
     setApprovalCsv(await readTabularFile(file))
+  }
+
+  async function syncRegistrations() {
+    setApproving(true)
+    try {
+      const recovered = await syncMissingAuthProfiles()
+      setMessage(recovered ? 'Recovered ' + recovered + (recovered === 1 ? ' registration' : ' registrations') + ' from Supabase Auth.' : 'All Auth registrations already have profiles.')
+      await queryClient.invalidateQueries({ queryKey: ['app-data'] })
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not sync registrations')
+    } finally {
+      setApproving(false)
+    }
   }
 
   function approvalMatch(student: Profile) {
@@ -313,6 +326,7 @@ export function AdminStudents() {
           <div className="section-title">
             <div><p className="eyebrow">Official roster matching</p><h2>Match registrations by Student ID or email</h2></div>
             <div className="toolbar-actions">
+              <IconButton onClick={() => void syncRegistrations()} disabled={approving}><UsersRound size={16} />Sync registrations</IconButton>
               <IconButton onClick={exportPending} disabled={!pendingStudents.length}><FileDown size={16} />Export pending</IconButton>
               <label className="file-picker compact-file-picker"><Upload size={16} />Upload approval roster<input type="file" accept=".csv,.xlsx,.xls,text/csv" onChange={(event) => void readApprovalFile(event)} /></label>
             </div>

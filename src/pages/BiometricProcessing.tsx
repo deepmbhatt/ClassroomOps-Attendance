@@ -10,22 +10,26 @@ import {
   loadAppData,
   loadEnrollmentFrames,
 } from '../lib/api'
+import { detectFaceRegions, preloadFaceDetector } from '../lib/faceDetection'
 import type { ComputeMode } from '../lib/faceEngine'
-import { createEmbeddingFromCanvas, getAvailableComputeModes } from '../lib/faceEngine'
+import { createEmbeddingFromCanvas, currentModelVersion, currentPipelineVersion, getAvailableComputeModes, isEmbeddingCompatible, preloadFaceEngine } from '../lib/faceEngine'
 
 type ClaimedJob = Awaited<ReturnType<typeof claimNextEnrollment>>
 
 export function BiometricProcessing() {
   const queryClient = useQueryClient()
   const { data } = useQuery({ queryKey: ['app-data'], queryFn: loadAppData })
-  const [mode, setMode] = useState<ComputeMode>('auto')
+  const [mode, setMode] = useState<ComputeMode>('cpu')
   const [claimed, setClaimed] = useState('')
   const [processing, setProcessing] = useState(false)
   const [message, setMessage] = useState('')
   const queued = data?.enrollments.filter((item) => item.state === 'queued') ?? []
   const processingJobs = data?.enrollments.filter((item) => item.state === 'processing') ?? []
   const actionableJobs = queued.length + processingJobs.length
-  const ready = data?.enrollments.filter((item) => item.state === 'ready').length ?? 0
+  const readyJobs = data?.enrollments.filter((item) => item.state === 'ready') ?? []
+  const compatibleStudents = new Set((data?.embeddings ?? []).filter(isEmbeddingCompatible).map((item) => item.student_id))
+  const ready = readyJobs.filter((item) => compatibleStudents.has(item.student_id)).length
+  const needsReprocessing = readyJobs.length - ready
   const workerId = useMemo(() => `browser-${crypto.randomUUID().slice(0, 8)}`, [])
   const [gpuLabel, setGpuLabel] = useState('Checking GPU')
 
@@ -67,14 +71,17 @@ export function BiometricProcessing() {
       return false
     }
 
+    await Promise.all([preloadFaceDetector(), preloadFaceEngine(mode)])
+
     const embeddings = []
     const qualityMessages = []
-    let modelVersion = 'demo-deterministic-v1'
-    let pipelineVersion = 'browser-face-v1'
+    let modelVersion = currentModelVersion
+    let pipelineVersion = currentPipelineVersion
 
     for (const frame of frames) {
       const canvas = await blobToCanvas(await downloadFaceFrame(frame.storage_path))
-      const result = await createEmbeddingFromCanvas(canvas, mode)
+      const regions = await detectFaceRegions(canvas)
+      const result = await createEmbeddingFromCanvas(canvas, mode, regions[0], regions.length)
       modelVersion = result.modelVersion
       pipelineVersion = result.pipelineVersion
       if (!result.quality.ok) qualityMessages.push(...result.quality.messages)
@@ -185,6 +192,7 @@ export function BiometricProcessing() {
           </IconButton>
         </div>
         {message ? <p className="notice">{message}</p> : null}
+        {needsReprocessing ? <p className="notice warning"><b>{needsReprocessing}</b> ready enrollment{needsReprocessing === 1 ? '' : 's'} use an older face pipeline. Reprocess each listed ready row before live recognition.</p> : null}
         {(data?.enrollments ?? []).length ? <div className="table-scroll"><table>
           <thead><tr><th>Student</th><th>Frames</th><th>State</th><th>Lock</th><th>Validation</th><th>Action</th></tr></thead>
           <tbody>
@@ -194,7 +202,7 @@ export function BiometricProcessing() {
                 <td>{job.frame_count}</td>
                 <td><StatusPill tone={job.state === 'ready' ? 'good' : job.state.includes('failed') ? 'danger' : 'warn'}>{claimed === job.id && processing ? 'processing' : job.state}</StatusPill></td>
                 <td>{claimed === job.id && processing ? workerId : job.lock_owner ?? 'unlocked'}</td>
-                <td>{job.failure_reason ?? 'Face count, size, pose consistency, embedding write'}</td>
+                <td>{job.failure_reason ?? (job.state === 'ready' && !compatibleStudents.has(job.student_id) ? 'Older embedding pipeline - reprocess required' : 'Face count, lighting, sharpness, pose consistency, embedding write')}</td>
                 <td>{job.state === 'ready' ? <IconButton disabled={processing} onClick={() => void reprocessOne(job)}><RotateCcw size={16} />Reprocess</IconButton> : '-'}</td>
               </tr>
             ))}

@@ -53,7 +53,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }
 
   useEffect(() => {
-    if (devBypass || !supabase) return
+    if (devBypass) return
+    if (!supabase) {
+      setReady(true)
+      return
+    }
 
     void supabase.auth
       .getSession()
@@ -144,6 +148,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
+// Auth hook intentionally shares this module with its provider.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const value = useContext(AuthContext)
   if (!value) throw new Error('useAuth must be used inside AuthProvider')

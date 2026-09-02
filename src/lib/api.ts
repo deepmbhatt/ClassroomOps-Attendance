@@ -73,7 +73,7 @@ export async function loadAppData(): Promise<AppData> {
     supabase.from('courses').select('*'),
     supabase.from('course_memberships').select('*').is('deleted_at', null),
     supabase.from('face_enrollments').select('*'),
-    supabase.from('face_embeddings').select('*'),
+    supabase.from('face_embeddings').select('*').eq('active', true),
     supabase.from('lecture_sessions').select('*'),
     supabase.from('attendance_records').select('*'),
     supabase.from('assessments').select('*'),
@@ -89,9 +89,9 @@ export async function loadAppData(): Promise<AppData> {
     if (result.error) throw result.error
   }
 
-  const profileById = new Map((profiles.data ?? []).map((profile: any) => [profile.id, profile]))
-  const courseById = new Map((courses.data ?? []).map((course: any) => [course.id, course]))
-  const componentById = new Map((markComponents.data ?? []).map((component: any) => [component.id, component]))
+  const profileById = new Map((profiles.data ?? []).map((profile) => [profile.id, profile]))
+  const courseById = new Map((courses.data ?? []).map((course) => [course.id, course]))
+  const componentById = new Map((markComponents.data ?? []).map((component) => [component.id, component]))
   const membershipRows = (courseMemberships.data ?? []) as CourseMembership[]
   const membershipCountByCourse = new Map<string, number>()
   const courseCodesByStudent = new Map<string, string[]>()
@@ -102,12 +102,12 @@ export async function loadAppData(): Promise<AppData> {
     courseCodesByStudent.set(membership.student_id, [...(courseCodesByStudent.get(membership.student_id) ?? []), course.code])
   }
 
-  const componentScoresByStudentCourse = new Map<string, any>()
+  const componentScoresByStudentCourse = new Map<string, MarkBreakdown>()
   for (const score of markComponentScores.data ?? []) {
     const component = componentById.get(score.component_id)
     const course = courseById.get(component?.course_id)
     const key = score.student_id + ':' + (component?.course_id ?? 'course')
-    const existing = componentScoresByStudentCourse.get(key) ?? {
+    const existing: MarkBreakdown = componentScoresByStudentCourse.get(key) ?? {
       id: key,
       student_id: score.student_id,
       student_name: profileById.get(score.student_id)?.full_name ?? 'Student',
@@ -123,23 +123,23 @@ export async function loadAppData(): Promise<AppData> {
 
   return {
     profiles: profiles.data as Profile[],
-    courses: (courses.data ?? []).map((course: any) => ({ ...course, enrolled_count: membershipCountByCourse.get(course.id) ?? 0 })),
+    courses: (courses.data ?? []).map((course) => ({ ...course, enrolled_count: membershipCountByCourse.get(course.id) ?? 0 })),
     courseMemberships: membershipRows,
-    enrollments: (enrollments.data ?? []).map((enrollment: any) => ({
+    enrollments: (enrollments.data ?? []).map((enrollment) => ({
       ...enrollment,
       student_name: profileById.get(enrollment.student_id)?.full_name ?? 'Student',
       course_codes: courseCodesByStudent.get(enrollment.student_id) ?? [],
     })),
-    embeddings: (embeddings.data ?? []).map((embedding: any) => ({ ...embedding, vector: embedding.embedding })),
-    lectures: (lectures.data ?? []).map((lecture: any) => ({ ...lecture, course_code: courseById.get(lecture.course_id)?.code ?? 'Course' })),
-    attendance: (attendance.data ?? []).map((record: any) => ({ ...record, student_name: profileById.get(record.student_id)?.full_name ?? 'Student' })),
-    assessments: (assessments.data ?? []).map((assessment: any) => ({ ...assessment, course_code: courseById.get(assessment.course_id)?.code ?? 'Course' })),
-    marks: (marks.data ?? []).map((mark: any) => ({ ...mark, student_name: profileById.get(mark.student_id)?.full_name ?? 'Student' })),
-    markComponents: (markComponents.data ?? []).map((column: any) => ({ ...column, course_code: courseById.get(column.course_id)?.code ?? 'Course' })),
+    embeddings: (embeddings.data ?? []).map((embedding) => ({ ...embedding, vector: embedding.embedding })),
+    lectures: (lectures.data ?? []).map((lecture) => ({ ...lecture, course_code: courseById.get(lecture.course_id)?.code ?? 'Course' })),
+    attendance: (attendance.data ?? []).map((record) => ({ ...record, student_name: profileById.get(record.student_id)?.full_name ?? 'Student' })),
+    assessments: (assessments.data ?? []).map((assessment) => ({ ...assessment, course_code: courseById.get(assessment.course_id)?.code ?? 'Course' })),
+    marks: (marks.data ?? []).map((mark) => ({ ...mark, student_name: profileById.get(mark.student_id)?.full_name ?? 'Student' })),
+    markComponents: (markComponents.data ?? []).map((column) => ({ ...column, course_code: courseById.get(column.course_id)?.code ?? 'Course' })),
     markBreakdowns: Array.from(componentScoresByStudentCourse.values()),
-    issues: (issues.data ?? []).map((issue: any) => ({ ...issue, student_name: profileById.get(issue.student_id)?.full_name ?? 'Student' })),
-    announcements: (announcements.data ?? []).map((announcement: any) => ({ ...announcement, course_code: announcement.course_id ? courseById.get(announcement.course_id)?.code ?? 'Course' : 'All courses' })),
-    auditLogs: (auditLogs.data ?? []).map((log: any) => ({ ...log, actor_name: profileById.get(log.actor_id)?.full_name ?? 'System' })),
+    issues: (issues.data ?? []).map((issue) => ({ ...issue, student_name: profileById.get(issue.student_id)?.full_name ?? 'Student' })),
+    announcements: (announcements.data ?? []).map((announcement) => ({ ...announcement, course_code: announcement.course_id ? courseById.get(announcement.course_id)?.code ?? 'Course' : 'All courses' })),
+    auditLogs: (auditLogs.data ?? []).map((log) => ({ ...log, actor_name: profileById.get(log.actor_id)?.full_name ?? 'System' })),
   }
 }
 
@@ -331,31 +331,15 @@ export async function completeEnrollmentProcessing(input: {
 }) {
   if (devBypass) return
   const supabase = requireSupabase()
-  const { data: userData } = await supabase.auth.getUser()
-
-  await supabase
-    .from('face_embeddings')
-    .update({ active: false })
-    .eq('student_id', input.studentId)
-    .eq('active', true)
-
-  const { error: embeddingError } = await supabase.from('face_embeddings').insert({
-    student_id: input.studentId,
-    enrollment_id: input.enrollmentId,
-    model_version: input.modelVersion,
-    pipeline_version: input.pipelineVersion,
-    embedding: input.embedding,
-    source_frame_ids: input.sourceFrameIds,
-    created_by: userData.user?.id ?? null,
-    active: true,
+  const { error } = await supabase.rpc('complete_face_enrollment_processing', {
+    p_enrollment_id: input.enrollmentId,
+    p_student_id: input.studentId,
+    p_embedding: input.embedding,
+    p_model_version: input.modelVersion,
+    p_pipeline_version: input.pipelineVersion,
+    p_source_frame_ids: input.sourceFrameIds,
   })
-  if (embeddingError) throw embeddingError
-
-  const { error: enrollmentError } = await supabase
-    .from('face_enrollments')
-    .update({ state: 'ready', lock_owner: null, locked_at: null, failure_reason: null })
-    .eq('id', input.enrollmentId)
-  if (enrollmentError) throw enrollmentError
+  if (error) throw error
 }
 
 export async function failEnrollmentProcessing(enrollmentId: string, reason: string) {
@@ -468,13 +452,13 @@ export async function setStudentCourseCodes(studentId: string, courseCodes: stri
   const normalizedCodes = courseCodes.map((code) => code.trim().toUpperCase()).filter(Boolean)
   const { data: courses, error: courseError } = await supabase.from('courses').select('id, code').in('code', normalizedCodes)
   if (courseError) throw courseError
-  const foundCodes = new Set((courses ?? []).map((course: any) => String(course.code).toUpperCase()))
+  const foundCodes = new Set((courses ?? []).map((course) => String(course.code).toUpperCase()))
   const missing = normalizedCodes.filter((code) => !foundCodes.has(code))
   if (missing.length) throw new Error(`Unknown course code(s): ${missing.join(', ')}`)
 
   const { error: clearError } = await supabase.from('course_memberships').update({ deleted_at: new Date().toISOString() }).eq('student_id', studentId)
   if (clearError) throw clearError
-  const memberships = (courses ?? []).map((course: any) => ({ course_id: course.id, student_id: studentId, deleted_at: null }))
+  const memberships = (courses ?? []).map((course) => ({ course_id: course.id, student_id: studentId, deleted_at: null }))
   if (memberships.length) {
     const { error } = await supabase.from('course_memberships').upsert(memberships, { onConflict: 'course_id,student_id' })
     if (error) throw error
@@ -609,4 +593,12 @@ export async function rejectStudentRegistration(studentId: string) {
     .eq('id', studentId)
     .eq('role', 'student')
   if (error) throw error
+}
+
+export async function syncMissingAuthProfiles() {
+  if (devBypass) return 0
+  const supabase = requireSupabase()
+  const { data, error } = await supabase.rpc('sync_missing_auth_profiles')
+  if (error) throw error
+  return Number(data ?? 0)
 }

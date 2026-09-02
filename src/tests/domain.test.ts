@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { canInsertAttendance, ensureOnlineForAttendance, normalizeAttendanceStatus } from '../lib/attendance'
 import { canTransitionEnrollment, isEnrollmentLocked } from '../lib/enrollmentState'
 import { previewImport } from '../lib/importValidation'
+import { averageEmbeddings, cosineSimilarity } from '../lib/faceEngine'
 
 describe('enrollment state machine', () => {
   it('allows the intended happy path and rejects unsafe duplicate processing paths', () => {
@@ -47,5 +48,14 @@ CSE404,hello`,
     expect(preview.errorCount).toBe(2)
     expect(preview.rows[1].messages).toContain('Duplicate student in import')
     expect(preview.rows[2].messages).toContain('Student ID was not found')
+  })
+})
+
+describe('face embedding decisions', () => {
+  it('normalizes averaged vectors and rejects incompatible dimensions', () => {
+    const averaged = averageEmbeddings([[1, 0], [0.8, 0.2]])
+    expect(Math.hypot(...averaged)).toBeCloseTo(1, 6)
+    expect(cosineSimilarity(averaged, averaged)).toBeCloseTo(1, 6)
+    expect(cosineSimilarity([1, 0], [1, 0, 0])).toBe(0)
   })
 })

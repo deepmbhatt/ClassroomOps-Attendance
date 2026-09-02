@@ -4,18 +4,18 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Card, IconButton, OnlineGate, PageHeader, StatusPill } from '../components/Layout'
 import { createLectureSession, closeLectureSession, loadAppData, markAttendanceRecord } from '../lib/api'
 import { canInsertAttendance, confidenceLabel, normalizeAttendanceStatus } from '../lib/attendance'
-import { cosineSimilarity, createEmbeddingFromCanvas } from '../lib/faceEngine'
+import { detectFaceRegions, preloadFaceDetector } from '../lib/faceDetection'
+import { averageEmbeddings, cosineSimilarity, createEmbeddingFromCanvas, isEmbeddingCompatible, preloadFaceEngine } from '../lib/faceEngine'
 import type { AppData } from '../lib/api'
 import type { AttendanceStatus } from '../types'
 
 const attendanceCsvFormat = `Student ID,Status,Marked At,Reason
 CSE001,present,2026-08-18T09:00:00+05:30,manual upload
 CSE002,absent,2026-08-18T09:00:00+05:30,manual upload`
-const recognitionThreshold = 0.78
-
-type FaceDetectorCtor = new (options?: { fastMode?: boolean; maxDetectedFaces?: number }) => {
-  detect(source: CanvasImageSource): Promise<Array<unknown>>
-}
+const configuredThreshold = Number(import.meta.env.VITE_FACE_MATCH_THRESHOLD ?? 0.58)
+const configuredMargin = Number(import.meta.env.VITE_FACE_MATCH_MARGIN ?? 0.06)
+const recognitionThreshold = Number.isFinite(configuredThreshold) ? configuredThreshold : 0.58
+const recognitionMargin = Number.isFinite(configuredMargin) ? configuredMargin : 0.06
 
 export function AttendanceTerminal() {
   const queryClient = useQueryClient()
@@ -24,9 +24,9 @@ export function AttendanceTerminal() {
   const streamRef = useRef<MediaStream | null>(null)
   const scanningRef = useRef(false)
   const busyRef = useRef(false)
-  const previousSampleRef = useRef<number | null>(null)
   const currentLectureIdRef = useRef('')
   const latestDataRef = useRef<AppData | undefined>(data)
+  const markManualRef = useRef<(status: AttendanceStatus) => Promise<void>>(async () => undefined)
   const [courseId, setCourseId] = useState(data?.courses[0]?.id ?? 'course-1')
   const [lectureId, setLectureId] = useState('')
   const [sessionTitle, setSessionTitle] = useState('Lecture attendance')
@@ -44,7 +44,7 @@ export function AttendanceTerminal() {
   const students = useMemo(() => data?.profiles.filter((profile) => profile.role === 'student' && profile.approval_status !== 'pending' && profile.approval_status !== 'rejected' && !profile.deleted_at) ?? [], [data])
   const selectedStudent = students.find((student) => student.id === selectedStudentId) ?? students[0]
   const records = (data?.attendance ?? []).filter((record) => !effectiveLectureId || record.lecture_id === effectiveLectureId)
-  const readyEmbeddings = (data?.embeddings ?? []).filter((embedding) => embedding.vector?.length)
+  const readyEmbeddings = (data?.embeddings ?? []).filter((embedding) => embedding.vector?.length && isEmbeddingCompatible(embedding))
 
   useEffect(() => {
     latestDataRef.current = data
@@ -58,15 +58,17 @@ export function AttendanceTerminal() {
     if (!selectedStudentId && students[0]) setSelectedStudentId(students[0].id)
   }, [selectedStudentId, students])
 
+  markManualRef.current = markManual
+
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement) return
-      if (event.key.toLowerCase() === 'p') void markManual('present')
-      if (event.key.toLowerCase() === 'a') void markManual('absent')
+      if (event.key.toLowerCase() === 'p') void markManualRef.current('present')
+      if (event.key.toLowerCase() === 'a') void markManualRef.current('absent')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [selectedStudent?.id, effectiveLectureId, sessionDateTime])
+  }, [])
 
   async function ensureSession() {
     if (activeLecture?.id) {
@@ -92,6 +94,9 @@ export function AttendanceTerminal() {
     setError('')
     try {
       await ensureSession()
+      if (!readyEmbeddings.length) throw new Error('No compatible face embeddings are ready. Reprocess older enrollments from Biometrics first.')
+      setStatus('Loading face detector and recognition model...')
+      await Promise.all([preloadFaceDetector(), preloadFaceEngine('cpu')])
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error('Camera access is unavailable. Open the app on HTTPS or localhost and allow camera permission.')
       }
@@ -134,34 +139,15 @@ export function AttendanceTerminal() {
     return canvas
   }
 
-  async function hasFaceLikePresence(canvas: HTMLCanvasElement) {
-    const detectorCtor = (window as unknown as { FaceDetector?: FaceDetectorCtor }).FaceDetector
-    if (detectorCtor) {
-      const detector = new detectorCtor({ fastMode: true, maxDetectedFaces: 1 })
-      const faces = await detector.detect(canvas)
-      return faces.length > 0
-    }
-
-    const context = canvas.getContext('2d')
-    if (!context) return false
-    const size = 24
-    const sample = context.getImageData(Math.floor(canvas.width * 0.3), Math.floor(canvas.height * 0.18), Math.floor(canvas.width * 0.4), Math.floor(canvas.height * 0.58)).data
-    let luminance = 0
-    for (let index = 0; index < sample.length; index += 16) luminance += sample[index] + sample[index + 1] + sample[index + 2]
-    const normalized = luminance / Math.max(1, sample.length / 16)
-    const previous = previousSampleRef.current
-    previousSampleRef.current = normalized + size
-    return previous == null ? normalized > 30 : Math.abs(normalized - previous) > 10 || normalized > 90
-  }
-
   async function scanLoop() {
     while (scanningRef.current) {
-      await new Promise((resolve) => window.setTimeout(resolve, 1000))
+      await new Promise((resolve) => window.setTimeout(resolve, 650))
       if (busyRef.current || !currentLectureIdRef.current) continue
       const probe = captureCanvas(0.28)
       if (!probe) continue
       try {
-        if (await hasFaceLikePresence(probe)) await recognizeBurst()
+        const faces = await detectFaceRegions(probe)
+        if (faces.length === 1) await recognizeBurst()
       } catch (nextError) {
         setError(nextError instanceof Error ? nextError.message : 'Recognition failed')
       }
@@ -170,59 +156,110 @@ export function AttendanceTerminal() {
 
   async function recognizeBurst() {
     const latestData = latestDataRef.current
-    const embeddings = (latestData?.embeddings ?? []).filter((embedding) => embedding.vector?.length)
-    const latestStudents = latestData?.profiles.filter((profile) => profile.role === 'student' && profile.approval_status !== 'pending' && profile.approval_status !== 'rejected' && !profile.deleted_at) ?? []
+    const latestStudents = latestData?.profiles.filter((profile) =>
+      profile.role === 'student'
+      && profile.approval_status !== 'pending'
+      && profile.approval_status !== 'rejected'
+      && !profile.deleted_at
+    ) ?? []
+    const allowedStudentIds = new Set(latestStudents.map((student) => student.id))
+    const embeddings = (latestData?.embeddings ?? []).filter((embedding) =>
+      embedding.vector?.length
+      && isEmbeddingCompatible(embedding)
+      && allowedStudentIds.has(embedding.student_id)
+    )
+
     if (!embeddings.length) {
-      setStatus('No ready embeddings loaded')
+      setStatus('No compatible embeddings loaded. Reprocess enrollments in Biometrics.')
       return
     }
+
     busyRef.current = true
-    setStatus('Face detected, checking identity...')
-    const vectors = []
+    setError('')
+    setStatus('Face detected. Verifying across 3 frames...')
+
+    const vectors: number[][] = []
+    const votes = new Map<string, number>()
+    let lastQualityMessage = ''
+
     try {
-      for (let index = 0; index < 4; index += 1) {
-        const canvas = captureCanvas(1)
+      for (let index = 0; index < 3; index += 1) {
+        const canvas = captureCanvas(0.8)
         if (!canvas) continue
-        const result = await createEmbeddingFromCanvas(canvas, 'cpu')
+        const regions = await detectFaceRegions(canvas)
+        if (regions.length !== 1) {
+          lastQualityMessage = regions.length ? 'Only one person can be in the face zone.' : 'Keep your face centered and look at the camera.'
+          await new Promise((resolve) => window.setTimeout(resolve, 120))
+          continue
+        }
+
+        const result = await createEmbeddingFromCanvas(canvas, 'cpu', regions[0], regions.length)
+        if (!result.quality.ok) {
+          lastQualityMessage = result.quality.messages.join('. ')
+          await new Promise((resolve) => window.setTimeout(resolve, 120))
+          continue
+        }
+
         vectors.push(result.vector)
-        await new Promise((resolve) => window.setTimeout(resolve, 180))
+        const frameBest = embeddings
+          .map((embedding) => ({ studentId: embedding.student_id, score: cosineSimilarity(result.vector, embedding.vector) }))
+          .sort((left, right) => right.score - left.score)[0]
+        if (frameBest) votes.set(frameBest.studentId, (votes.get(frameBest.studentId) ?? 0) + 1)
+        await new Promise((resolve) => window.setTimeout(resolve, 120))
       }
-      if (!vectors.length) return
-      const queryVector = averageVectors(vectors)
-      const best = embeddings
-        .map((embedding) => ({ embedding, score: cosineSimilarity(queryVector, embedding.vector) }))
-        .sort((left, right) => right.score - left.score)[0]
-      if (!best || best.score < recognitionThreshold) {
-        const closest = latestStudents.find((student) => student.id === best?.embedding.student_id)
-        setStatus(`Unknown face. Closest: ${closest?.full_name ?? 'none'} ${Math.round((best?.score ?? 0) * 100)}%, needs ${Math.round(recognitionThreshold * 100)}%`)
+
+      if (vectors.length < 2) {
+        setStatus(lastQualityMessage || 'Could not capture two clear frames. Hold still and try again.')
         return
       }
+
+      const queryVector = averageEmbeddings(vectors)
+      const ranked = embeddings
+        .map((embedding) => ({ embedding, score: cosineSimilarity(queryVector, embedding.vector) }))
+        .sort((left, right) => right.score - left.score)
+      const best = ranked[0]
+      const second = ranked.find((candidate) => candidate.embedding.student_id !== best?.embedding.student_id)
+      const voteCount = best ? votes.get(best.embedding.student_id) ?? 0 : 0
+      const margin = best ? best.score - (second?.score ?? 0) : 0
+      const verified = Boolean(
+        best
+        && best.score >= recognitionThreshold
+        && voteCount >= 2
+        && margin >= recognitionMargin
+      )
+
+      if (!verified || !best) {
+        const closest = latestStudents.find((student) => student.id === best?.embedding.student_id)
+        const reason = voteCount < 2
+          ? 'frames did not agree'
+          : margin < recognitionMargin
+            ? 'match is too close to another student'
+            : 'confidence is below threshold'
+        setStatus(`Unknown face: ${reason}. Closest ${closest?.full_name ?? 'none'} at ${Math.round((best?.score ?? 0) * 100)}%.`)
+        return
+      }
+
       const lecture = currentLectureIdRef.current || await ensureSession()
       if (!canInsertAttendance(latestData?.attendance ?? [], lecture, best.embedding.student_id)) {
-        setStatus('Already marked for this session')
+        const profile = latestStudents.find((student) => student.id === best.embedding.student_id)
+        setStatus(`${profile?.full_name ?? 'Student'} is already marked for this session.`)
         return
       }
+
       await markAttendanceRecord({
         lectureId: lecture,
         studentId: best.embedding.student_id,
         status: 'present',
         confidence: Number(best.score.toFixed(4)),
         source: 'face',
-        reason: 'Live camera recognition',
+        reason: `3-frame consensus (${voteCount}/${vectors.length}), margin ${margin.toFixed(3)}`,
       })
       const profile = latestStudents.find((student) => student.id === best.embedding.student_id)
-      setStatus(`Marked ${profile?.full_name ?? 'student'} present`)
+      setStatus(`Marked ${profile?.full_name ?? 'student'} present in ${vectors.length} frames (${Math.round(best.score * 100)}%).`)
       await queryClient.invalidateQueries({ queryKey: ['app-data'] })
     } finally {
-      window.setTimeout(() => { busyRef.current = false }, 900)
+      window.setTimeout(() => { busyRef.current = false }, 450)
     }
-  }
-
-  function averageVectors(vectors: number[][]) {
-    const length = Math.min(...vectors.map((vector) => vector.length))
-    const averaged = Array.from({ length }, (_, index) => vectors.reduce((sum, vector) => sum + vector[index], 0) / vectors.length)
-    const norm = Math.sqrt(averaged.reduce((sum, value) => sum + value * value, 0)) || 1
-    return averaged.map((value) => value / norm)
   }
 
   async function markManual(nextStatus: AttendanceStatus) {
@@ -358,7 +395,7 @@ export function AttendanceTerminal() {
               <div className="face-zone" />
             </div>
             <div className="terminal-status">
-              <StatusPill tone={cameraRunning ? 'good' : 'neutral'}>{cameraRunning ? 'scanning every 1s' : 'camera off'}</StatusPill>
+              <StatusPill tone={cameraRunning ? 'good' : 'neutral'}>{cameraRunning ? 'continuous scan' : 'camera off'}</StatusPill>
               <span>{readyEmbeddings.length} ready embeddings loaded</span>
               {error ? <span className="form-error">{error}</span> : null}
             </div>

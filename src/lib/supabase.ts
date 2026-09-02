@@ -3,7 +3,9 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
-export const devBypass = import.meta.env.VITE_DEV_AUTH_BYPASS === 'true'
+// Demo data must never replace Supabase data in a production build.
+export const devBypass = import.meta.env.DEV && import.meta.env.VITE_DEV_AUTH_BYPASS === 'true'
+export const supabaseConfigured = Boolean(url && key)
 
 export const supabase: SupabaseClient | null =
   !devBypass && url && key ? createClient(url, key) : null

@@ -2,6 +2,7 @@ import { ArrowLeft, Eye, EyeOff, LogIn, Mail, ShieldCheck, UserPlus } from 'luci
 import { FormEvent, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth'
+import { devBypass, supabaseConfigured } from '../lib/supabase'
 
 export function Login() {
   const auth = useAuth()
@@ -78,6 +79,7 @@ export function Login() {
         <label>Institutional email<input name="email" type="email" autoComplete="email" required placeholder="name@college.edu" /></label>
         {mode !== 'forgot' ? <label>Password<span className="password-field"><input name="password" type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required minLength={8} placeholder="At least 8 characters" /><button type="button" title={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword((shown) => !shown)}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label> : null}
 
+        {!supabaseConfigured && !devBypass ? <p className="form-error">Deployment configuration is incomplete. Add the Supabase URL and anon key, then redeploy.</p> : null}
         {error ? <p className="form-error">{error}</p> : null}
         {message ? <p className="notice"><Mail size={16} />{message}</p> : null}
 

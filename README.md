@@ -102,8 +102,9 @@ Set:
 VITE_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
 VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
 VITE_DEV_AUTH_BYPASS=false
-# Optional: only set this if public/models/face-embedding.onnx exists
-# VITE_FACE_EMBEDDING_MODEL=/models/face-embedding.onnx
+VITE_FACE_EMBEDDING_MODEL=/models/face-embedding.onnx
+VITE_FACE_MATCH_THRESHOLD=0.58
+VITE_FACE_MATCH_MARGIN=0.06
 ```
 
 Find values in Supabase:
@@ -140,8 +141,9 @@ If your GitHub repo root is already `classroom-attendance-platform`, leave Root 
 VITE_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
 VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
 VITE_DEV_AUTH_BYPASS=false
-# Optional: only set this if public/models/face-embedding.onnx exists
-# VITE_FACE_EMBEDDING_MODEL=/models/face-embedding.onnx
+VITE_FACE_EMBEDDING_MODEL=/models/face-embedding.onnx
+VITE_FACE_MATCH_THRESHOLD=0.58
+VITE_FACE_MATCH_MARGIN=0.06
 ```
 
 6. Deploy.
@@ -202,7 +204,7 @@ If the browser console says `Failed to load resource: the server responded with 
 
 Check these first:
 
-1. Run the latest full migration SQL again in Supabase SQL Editor.
+1. Run `supabase db push` from the linked project folder so only pending migrations are applied.
 2. Confirm these tables exist: `profiles`, `courses`, `lecture_sessions`, `mark_components`, `mark_component_scores`.
 3. Confirm Vercel env vars are correct and redeploy after changing them.
 4. In browser DevTools, open `Network`, click the failed `rest/v1/...` request, and read the JSON error message.
@@ -235,14 +237,14 @@ supabase/migrations/202608180004_face_enrollment_upload_flow.sql
 ```
 
 
-## Optional ONNX Face Model
+## ONNX Face Model
 
-`VITE_FACE_EMBEDDING_MODEL` is optional. Only set it when a real ONNX file exists in `public/models/face-embedding.onnx` or at another public URL. If the model is missing or invalid, admin biometric processing stops with a clear model configuration error instead of marking enrollments ready with invalid embeddings.
+Biometric processing requires a real ArcFace-compatible 112x112 ONNX model at `public/models/face-embedding.onnx` (or another URL set in `VITE_FACE_EMBEDDING_MODEL`). The app validates the response and stops before writing embeddings when the model is missing or invalid.
 
 
 ## Live Attendance Terminal
 
-The admin attendance terminal uses the classroom/admin camera only. Set the course, title, and date/time, then start the camera. The page performs a light once-per-second presence check, captures a short burst when someone is in the active zone, compares against ready embeddings, and writes one attendance record per student per lecture.
+The admin attendance terminal uses the classroom/admin camera only. Set the course, title, and date/time, then start the camera. The page performs a lightweight continuous face check, verifies three clear frames using vote consensus and a second-best margin, compares only compatible active embeddings, and writes one attendance record per student per lecture.
 
 Manual controls are available beside the camera: select a student and click `Present`, `Absent`, `Late`, or `Excused`. Keyboard shortcuts work after selecting a student: `P` marks present and `A` marks absent. CSV import supports past/manual corrections with:
 
@@ -252,3 +254,22 @@ CSE001,present,2026-08-18T09:00:00+05:30,manual upload
 ```
 
 Use `Download` at the end to export the final attendance sheet for the selected session.
+
+## Production Upgrade: Recover Hidden Registrations
+
+For an existing deployment, run these commands from the project folder:
+
+```bash
+npm install
+supabase login
+supabase link --project-ref YOUR_PROJECT_REF
+supabase db push
+npm run test -- --run
+npm run build
+```
+
+Do not rerun the initial migration manually on an existing database; `supabase db push` applies only migrations that are still pending. Migration `202608270001_recover_auth_profiles.sql` creates missing `public.profiles` rows for existing Supabase Auth users and marks them pending for approval.
+
+In Vercel, keep only the real `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and face model settings. Delete `VITE_DEV_AUTH_BYPASS` or set it to `false`, then redeploy. Production builds now ignore the demo bypass even if it is accidentally set.
+
+After deployment, sign in as admin and open `Students > Pending approvals`. Click `Sync registrations`, assign course codes, and approve matched students. Older face embeddings are intentionally shown as needing reprocessing because the new detected-crop pipeline cannot safely be mixed with the previous center-crop vectors.
