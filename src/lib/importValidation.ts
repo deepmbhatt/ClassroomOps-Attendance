@@ -74,6 +74,7 @@ export function previewStudentImport(text: string, existingStudents: KnownStuden
     const fullName = getCell(row, headerMap, ['full_name', 'name', 'student_name'])
     const email = getCell(row, headerMap, ['email', 'email_id', 'student_email']).toLowerCase()
     const phone = getCell(row, headerMap, ['phone', 'mobile', 'phone_number'])
+    const additionalInfo = getCell(row, headerMap, ['additional_information', 'additional_info', 'notes', 'details'])
     const courseCodes = getCell(row, headerMap, ['course_codes', 'courses', 'subjects'])
       .split(/[;|]/)
       .map((course) => course.trim())
@@ -103,6 +104,7 @@ export function previewStudentImport(text: string, existingStudents: KnownStuden
       fullName,
       email,
       phone,
+      additionalInfo,
       courseCodes,
       temporaryPassword,
       status: messages.length ? 'error' : 'valid',

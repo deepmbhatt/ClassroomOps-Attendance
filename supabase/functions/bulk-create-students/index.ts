@@ -5,6 +5,7 @@ type StudentInput = {
   fullName: string
   email: string
   phone?: string
+  additionalInfo?: string
   courseCodes?: string[]
   temporaryPassword?: string
 }
@@ -91,6 +92,7 @@ Deno.serve(async (req) => {
         full_name: fullName,
         student_id: studentId,
         phone: student.phone ?? '',
+        additional_info: student.additionalInfo ?? '',
       },
     })
 
@@ -107,6 +109,7 @@ Deno.serve(async (req) => {
       student_id: studentId,
       email,
       phone: student.phone ?? null,
+      additional_info: student.additionalInfo?.trim() || null,
       must_change_password: true,
       approval_status: 'approved',
       approved_at: new Date().toISOString(),

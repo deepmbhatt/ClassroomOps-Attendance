@@ -17,7 +17,7 @@ interface AuthValue {
   approvalStatus: 'pending' | 'approved' | 'rejected'
   signedIn: boolean
   signIn(email: string, password: string): Promise<void>
-  signUp(input: { email: string; password: string; fullName: string; studentId: string; phone: string }): Promise<void>
+  signUp(input: { email: string; password: string; fullName: string; studentId: string; phone: string; additionalInfo: string }): Promise<void>
   sendPasswordReset(email: string): Promise<void>
   updatePassword(password: string): Promise<void>
   signOut(): Promise<void>
@@ -105,6 +105,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
             full_name: input.fullName,
             student_id: input.studentId,
             phone: input.phone,
+            additional_info: input.additionalInfo,
           },
         },
       })

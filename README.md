@@ -273,3 +273,11 @@ Do not rerun the initial migration manually on an existing database; `supabase d
 In Vercel, keep only the real `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and face model settings. Delete `VITE_DEV_AUTH_BYPASS` or set it to `false`, then redeploy. Production builds now ignore the demo bypass even if it is accidentally set.
 
 After deployment, sign in as admin and open `Students > Pending approvals`. Click `Sync registrations`, assign course codes, and approve matched students. Older face embeddings are intentionally shown as needing reprocessing because the new detected-crop pipeline cannot safely be mixed with the previous center-crop vectors.
+
+## Reset All Students And Biometrics
+
+This repository includes `supabase/RESET_STUDENT_DATA_KEEP_ADMINS.sql` for a guarded one-time reset. It preserves admin profiles and shared course setup while permanently removing student Auth accounts, profiles, enrollments, embeddings, attendance, marks, memberships, issues, imports, and audit history.
+
+Before running it, empty the private `face-frames` bucket from the Supabase Storage dashboard. Then open the SQL file, verify the expected admin email, and run the whole file in the Supabase SQL Editor.
+
+Student registration now stores phone and optional additional information. Migration `202609020001_add_student_additional_info.sql` adds the profile field and updates signup/profile-recovery triggers. Administrators can view and search these values in Pending Approvals and Student Directory.

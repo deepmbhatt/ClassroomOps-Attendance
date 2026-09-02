@@ -22,6 +22,7 @@ export interface Profile {
   student_id?: string
   email: string
   phone?: string
+  additional_info?: string
   biometric_consent_at?: string
   must_change_password?: boolean
   approval_status?: 'pending' | 'approved' | 'rejected'
@@ -203,6 +204,7 @@ export interface StudentImportPreviewRow {
   fullName: string
   email: string
   phone: string
+  additionalInfo: string
   courseCodes: string[]
   temporaryPassword: string
   status: 'valid' | 'error'

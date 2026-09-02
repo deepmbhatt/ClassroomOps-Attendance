@@ -32,6 +32,7 @@ export function Login() {
           fullName: String(form.get('fullName')),
           studentId: String(form.get('studentId')),
           phone: String(form.get('phone')),
+          additionalInfo: String(form.get('additionalInfo')),
         })
       } else {
         await auth.signIn(String(form.get('email')), String(form.get('password')))
@@ -74,6 +75,8 @@ export function Login() {
             <label>Student ID<input name="studentId" required placeholder="CSE001" /></label>
             <label>Phone<input name="phone" autoComplete="tel" required placeholder="+91 90000 00000" /></label>
           </div>
+          <label>Additional information <small>(optional)</small><textarea name="additionalInfo" placeholder="Department, section, alternate contact, or anything else the administrator should know" /></label>
+          <p className="muted-copy">Your phone number and additional information will be available to administrators for account verification.</p>
         </> : null}
 
         <label>Institutional email<input name="email" type="email" autoComplete="email" required placeholder="name@college.edu" /></label>

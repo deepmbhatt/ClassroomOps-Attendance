@@ -18,17 +18,10 @@ import type {
 import {
   demoAnnouncements,
   demoAssessments,
-  demoAttendance,
-  demoAuditLogs,
   demoCourses,
-  demoEmbeddings,
-  demoEnrollments,
   demoLectures,
-  demoMarks,
-  demoMarkBreakdowns,
   demoMarkComponents,
   demoProfiles,
-  demoIssues,
 } from './demoData'
 import { devBypass, requireSupabase } from './supabase'
 
@@ -145,20 +138,20 @@ export async function loadAppData(): Promise<AppData> {
 
 export function loadDemoData(): AppData {
   return {
-    profiles: demoProfiles,
-    courses: demoCourses,
+    profiles: demoProfiles.filter((profile) => profile.role === 'admin'),
+    courses: demoCourses.map((course) => ({ ...course, enrolled_count: 0 })),
     courseMemberships: [],
-    enrollments: demoEnrollments,
-    embeddings: demoEmbeddings,
+    enrollments: [],
+    embeddings: [],
     lectures: demoLectures,
-    attendance: demoAttendance,
+    attendance: [],
     assessments: demoAssessments,
-    marks: demoMarks,
+    marks: [],
     markComponents: demoMarkComponents,
-    markBreakdowns: demoMarkBreakdowns,
-    issues: demoIssues,
+    markBreakdowns: [],
+    issues: [],
     announcements: demoAnnouncements,
-    auditLogs: demoAuditLogs,
+    auditLogs: [],
   }
 }
 
@@ -185,6 +178,7 @@ export async function bulkCreateStudents(rows: StudentImportPreviewRow[]) {
         fullName: row.fullName,
         email: row.email,
         phone: row.phone,
+        additionalInfo: row.additionalInfo,
         courseCodes: row.courseCodes,
         temporaryPassword: row.temporaryPassword,
       })),
@@ -430,7 +424,7 @@ export async function softDeleteCourse(courseId: string) {
   if (error) throw error
 }
 
-export async function updateStudentProfile(input: { id: string; studentId: string; fullName: string; email: string; phone?: string; mustChangePassword?: boolean }) {
+export async function updateStudentProfile(input: { id: string; studentId: string; fullName: string; email: string; phone?: string; additionalInfo?: string; mustChangePassword?: boolean }) {
   if (devBypass) return
   const supabase = requireSupabase()
   const { error } = await supabase
@@ -440,6 +434,7 @@ export async function updateStudentProfile(input: { id: string; studentId: strin
       full_name: input.fullName.trim(),
       email: input.email.trim().toLowerCase(),
       phone: input.phone?.trim() || null,
+      additional_info: input.additionalInfo?.trim() || null,
       must_change_password: Boolean(input.mustChangePassword),
     })
     .eq('id', input.id)
@@ -472,11 +467,11 @@ export async function softDeleteStudent(studentId: string) {
   if (error) throw error
 }
 
-export async function updateExistingStudents(rows: Array<{ studentId: string; fullName: string; email: string; phone: string; courseCodes: string[] }>, profiles: Profile[]) {
+export async function updateExistingStudents(rows: Array<{ studentId: string; fullName: string; email: string; phone: string; additionalInfo: string; courseCodes: string[] }>, profiles: Profile[]) {
   for (const row of rows) {
     const profile = profiles.find((item) => item.student_id === row.studentId || item.email.toLowerCase() === row.email.toLowerCase())
     if (!profile) continue
-    await updateStudentProfile({ id: profile.id, studentId: row.studentId, fullName: row.fullName, email: row.email, phone: row.phone, mustChangePassword: profile.must_change_password })
+    await updateStudentProfile({ id: profile.id, studentId: row.studentId, fullName: row.fullName, email: row.email, phone: row.phone, additionalInfo: row.additionalInfo, mustChangePassword: profile.must_change_password })
     await setStudentCourseCodes(profile.id, row.courseCodes)
   }
 }
