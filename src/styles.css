@@ -423,3 +423,35 @@ main { min-width: 0; padding: 2.5rem clamp(1rem, 3vw, 3rem) 5rem; }
     min-height: 360px;
   }
 }
+
+
+.camera-device-picker {
+  display: grid;
+  grid-template-columns: auto minmax(220px, 360px);
+  align-items: center;
+  gap: .65rem;
+  width: fit-content;
+}
+
+.camera-device-picker select {
+  min-width: 220px;
+}
+
+.compact-controls {
+  grid-template-columns: repeat(3, minmax(200px, 1fr));
+}
+
+@media (max-width: 900px) {
+  .compact-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .camera-device-picker {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .camera-device-picker select {
+    min-width: 0;
+  }
+}

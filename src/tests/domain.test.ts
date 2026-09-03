@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { canInsertAttendance, ensureOnlineForAttendance, normalizeAttendanceStatus } from '../lib/attendance'
 import { attendanceTone, effectiveAttendanceStatus, localDateKey } from '../lib/attendanceView'
+import { cameraErrorMessage } from '../lib/camera'
 import { canTransitionEnrollment, isEnrollmentLocked } from '../lib/enrollmentState'
 import { previewImport } from '../lib/importValidation'
 import { averageEmbeddings, cosineSimilarity } from '../lib/faceEngine'
@@ -74,5 +75,20 @@ describe('attendance views', () => {
 
   it('creates stable local date keys for date filters', () => {
     expect(localDateKey(new Date(2026, 8, 2, 9, 30))).toBe('2026-09-02')
+  })
+})
+
+
+describe('camera diagnostics', () => {
+  it('provides an actionable message when permission is denied', () => {
+    const error = new Error('Permission denied')
+    error.name = 'NotAllowedError'
+    expect(cameraErrorMessage(error)).toMatch(/allow camera permission/i)
+  })
+
+  it('explains when another application is using the webcam', () => {
+    const error = new Error('Could not start video source')
+    error.name = 'NotReadableError'
+    expect(cameraErrorMessage(error)).toMatch(/close Zoom, Meet, Teams/i)
   })
 })

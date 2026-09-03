@@ -1,5 +1,6 @@
-import { Camera, Check, RotateCcw, ShieldAlert } from 'lucide-react'
+import { Camera, Check, RefreshCw, RotateCcw, ShieldAlert, Video } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { attachCameraStream, listVideoInputs, requestCamera, stopCameraStream } from '../lib/camera'
 import { Card, IconButton, StatusPill } from './Layout'
 
 export interface CapturedFrame {
@@ -20,30 +21,72 @@ export function CameraCapture({
   locked?: boolean
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const attemptRef = useRef(0)
   const [stream, setStream] = useState<MediaStream | null>(null)
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
+  const [selectedDeviceId, setSelectedDeviceId] = useState('')
   const [frames, setFrames] = useState<CapturedFrame[]>([])
   const [error, setError] = useState('')
+  const [starting, setStarting] = useState(false)
 
   useEffect(() => {
-    if (locked) return
-    let active: MediaStream | null = null
-    void navigator.mediaDevices
-      ?.getUserMedia({ video: { facingMode: 'user', width: { ideal: 960 }, height: { ideal: 720 } }, audio: false })
-      .then((next) => {
-        active = next
-        setStream(next)
-        if (videoRef.current) videoRef.current.srcObject = next
-      })
-      .catch(() => setError('Camera permission is required for guided capture.'))
-    return () => active?.getTracks().forEach((track) => track.stop())
+    if (!locked) void startCamera()
+    return () => stopCamera()
+    // Camera startup is intentionally tied to the locked state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locked])
+
+  async function startCamera(deviceId = selectedDeviceId) {
+    if (locked || starting) return
+    const attempt = ++attemptRef.current
+    stopCameraStream(streamRef.current)
+    streamRef.current = null
+    setStream(null)
+    setStarting(true)
+    setError('')
+
+    try {
+      const next = await requestCamera(deviceId || undefined)
+      if (attempt !== attemptRef.current) {
+        stopCameraStream(next)
+        return
+      }
+      if (!videoRef.current) throw new Error('The camera preview is not ready. Press Retry camera.')
+      await attachCameraStream(videoRef.current, next)
+      streamRef.current = next
+      setStream(next)
+      const inputs = await listVideoInputs()
+      setDevices(inputs)
+      const activeDeviceId = next.getVideoTracks()[0]?.getSettings().deviceId
+      if (activeDeviceId) setSelectedDeviceId(activeDeviceId)
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'Camera could not start.')
+    } finally {
+      if (attempt === attemptRef.current) setStarting(false)
+    }
+  }
+
+  function stopCamera() {
+    attemptRef.current += 1
+    stopCameraStream(streamRef.current)
+    streamRef.current = null
+    if (videoRef.current) videoRef.current.srcObject = null
+    setStream(null)
+    setStarting(false)
+  }
+
+  async function changeCamera(deviceId: string) {
+    setSelectedDeviceId(deviceId)
+    await startCamera(deviceId)
+  }
 
   const nextPrompt = prompts[frames.length] ?? 'Complete'
   const complete = frames.length >= prompts.length
 
   function capture() {
     const video = videoRef.current
-    if (!video || locked || complete) return
+    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || locked || complete) return
     const canvas = document.createElement('canvas')
     canvas.width = video.videoWidth || 640
     canvas.height = video.videoHeight || 480
@@ -65,16 +108,25 @@ export function CameraCapture({
   return (
     <Card className="camera-card">
       <div className="camera-stage">
-        {error ? (
+        <video ref={videoRef} autoPlay playsInline muted />
+        {!stream || error ? (
           <div className="camera-error">
-            <ShieldAlert size={38} />
-            <p>{error}</p>
+            {error ? <ShieldAlert size={38} /> : <Video size={38} />}
+            <p>{error || (starting ? 'Starting webcam...' : 'Camera is off.')}</p>
+            {!locked ? <IconButton title="Ask the browser for camera access again" disabled={starting} onClick={() => void startCamera()}><RefreshCw size={16} />{starting ? 'Starting...' : 'Retry camera'}</IconButton> : null}
           </div>
-        ) : (
-          <video ref={videoRef} autoPlay playsInline muted />
-        )}
-        <div className="face-zone" />
+        ) : null}
+        {stream ? <div className="face-zone" /> : null}
       </div>
+
+      {devices.length > 1 ? (
+        <label className="camera-device-picker">Camera
+          <select value={selectedDeviceId} disabled={locked || starting} onChange={(event) => void changeCamera(event.target.value)}>
+            {devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}
+          </select>
+        </label>
+      ) : null}
+
       <div className="capture-toolbar">
         <div>
           <StatusPill tone={complete ? 'good' : stream ? 'warn' : 'neutral'}>

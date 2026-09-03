@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Card, IconButton, OnlineGate, PageHeader, StatusPill } from '../components/Layout'
 import { closeLectureSession, createLectureSession, loadAppData, markAttendanceRecord } from '../lib/api'
 import { canInsertAttendance, confidenceLabel } from '../lib/attendance'
+import { attachCameraStream, listVideoInputs, requestCamera, stopCameraStream } from '../lib/camera'
 import { detectFaceRegions, preloadFaceDetector } from '../lib/faceDetection'
 import { averageEmbeddings, cosineSimilarity, createEmbeddingFromCanvas, isEmbeddingCompatible, preloadFaceEngine } from '../lib/faceEngine'
 import type { AppData } from '../lib/api'
@@ -31,6 +32,8 @@ export function AttendanceTerminal() {
   const [status, setStatus] = useState('Ready to start')
   const [error, setError] = useState('')
   const [cameraRunning, setCameraRunning] = useState(false)
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
+  const [selectedDeviceId, setSelectedDeviceId] = useState('')
 
   const course = data?.courses.find((item) => item.id === courseId) ?? data?.courses.find((item) => item.active) ?? data?.courses[0]
   const activeLecture = data?.lectures.find((lecture) => lecture.id === lectureId)
@@ -57,7 +60,7 @@ export function AttendanceTerminal() {
   useEffect(() => {
     return () => {
       scanningRef.current = false
-      streamRef.current?.getTracks().forEach((track) => track.stop())
+      stopCameraStream(streamRef.current)
     }
   }, [])
 
@@ -85,21 +88,21 @@ export function AttendanceTerminal() {
     try {
       if (!students.length) throw new Error('No approved students are assigned to this course.')
       if (!readyEmbeddings.length) throw new Error('No compatible face embeddings are ready for students in this course.')
-      setStatus('Preparing face recognition...')
+      setStatus('Opening webcam...')
+      const stream = await requestCamera(selectedDeviceId || undefined)
+      streamRef.current = stream
+      if (!videoRef.current) throw new Error('The camera preview is not ready. Press Start scanning again.')
+      await attachCameraStream(videoRef.current, stream)
+      setCameraRunning(true)
+      const inputs = await listVideoInputs()
+      setDevices(inputs)
+      const activeDeviceId = stream.getVideoTracks()[0]?.getSettings().deviceId
+      if (activeDeviceId) setSelectedDeviceId(activeDeviceId)
+
+      setStatus('Camera ready. Loading face recognition...')
       await ensureSession()
       await Promise.all([preloadFaceDetector(), preloadFaceEngine('cpu')])
-      if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera access requires HTTPS or localhost.')
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
-      })
-      streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        await videoRef.current.play()
-      }
       scanningRef.current = true
-      setCameraRunning(true)
       setStatus('Scanning for faces')
       void scanLoop()
     } catch (nextError) {
@@ -110,7 +113,7 @@ export function AttendanceTerminal() {
 
   function stopCamera(nextStatus = 'Camera stopped') {
     scanningRef.current = false
-    streamRef.current?.getTracks().forEach((track) => track.stop())
+    stopCameraStream(streamRef.current)
     streamRef.current = null
     if (videoRef.current) videoRef.current.srcObject = null
     setCameraRunning(false)
@@ -276,6 +279,7 @@ export function AttendanceTerminal() {
             <div className="attendance-controls compact-controls">
               <label>Course<select value={course?.id ?? ''} disabled={cameraRunning} onChange={(event) => setCourseId(event.target.value)}>{data?.courses.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.code} - {item.title}</option>)}</select></label>
               <label>Session title<input value={sessionTitle} disabled={cameraRunning} onChange={(event) => setSessionTitle(event.target.value)} /></label>
+              {devices.length > 1 ? <label>Camera<select value={selectedDeviceId} disabled={cameraRunning} onChange={(event) => setSelectedDeviceId(event.target.value)}>{devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}</select></label> : null}
             </div>
             <div className="live-camera-stage">
               <video ref={videoRef} autoPlay playsInline muted />
