@@ -86,8 +86,6 @@ export function AttendanceTerminal() {
     if (cameraRunning) return
     setError('')
     try {
-      if (!students.length) throw new Error('No approved students are assigned to this course.')
-      if (!readyEmbeddings.length) throw new Error('No compatible face embeddings are ready for students in this course.')
       setStatus('Opening webcam...')
       const stream = await requestCamera(selectedDeviceId || undefined)
       streamRef.current = stream
@@ -98,6 +96,17 @@ export function AttendanceTerminal() {
       setDevices(inputs)
       const activeDeviceId = stream.getVideoTracks()[0]?.getSettings().deviceId
       if (activeDeviceId) setSelectedDeviceId(activeDeviceId)
+
+      if (!students.length) {
+        setStatus('Camera ready. Course setup is required')
+        setError('The webcam is working, but no approved students are assigned to this course.')
+        return
+      }
+      if (!readyEmbeddings.length) {
+        setStatus('Camera ready. Face enrollments are required')
+        setError('The webcam is working, but this course has no compatible student face embeddings.')
+        return
+      }
 
       setStatus('Camera ready. Loading face recognition...')
       await ensureSession()
