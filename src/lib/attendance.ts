@@ -22,6 +22,11 @@ export function normalizeAttendanceStatus(value: string): AttendanceStatus {
   throw new Error(`Unsupported attendance status: ${value}`)
 }
 
+export function recognitionThresholdForAttempt(baseThreshold: number, attempt: number) {
+  const boundedAttempt = Math.min(3, Math.max(1, Math.trunc(attempt)))
+  return Math.max(0.54, baseThreshold - (boundedAttempt - 1) * 0.01)
+}
+
 export function confidenceLabel(confidence?: number) {
   if (confidence == null) return 'Manual'
   if (confidence >= 0.86) return 'High'

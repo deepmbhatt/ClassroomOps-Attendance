@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Card, IconButton, OnlineGate, PageHeader, StatusPill } from '../components/Layout'
 import { closeLectureSession, createLectureSession, loadAppData, markAttendanceRecord } from '../lib/api'
-import { canInsertAttendance, confidenceLabel } from '../lib/attendance'
+import { canInsertAttendance, confidenceLabel, recognitionThresholdForAttempt } from '../lib/attendance'
 import { attachCameraStream, listVideoInputs, requestCamera, stopCameraStream } from '../lib/camera'
 import { detectFaceRegions, preloadFaceDetector } from '../lib/faceDetection'
 import { averageEmbeddings, cosineSimilarity, createEmbeddingFromCanvas, isEmbeddingCompatible, preloadFaceEngine } from '../lib/faceEngine'
@@ -26,6 +26,8 @@ export function AttendanceTerminal() {
   const currentLectureIdRef = useRef('')
   const latestDataRef = useRef<AppData | undefined>(data)
   const recentlyMarkedRef = useRef(new Set<string>())
+  const recognitionFailuresRef = useRef(0)
+  const recognitionRetryAfterRef = useRef(0)
   const [courseId, setCourseId] = useState('')
   const [lectureId, setLectureId] = useState('')
   const [sessionTitle, setSessionTitle] = useState('Lecture attendance')
@@ -144,7 +146,7 @@ export function AttendanceTerminal() {
   async function scanLoop() {
     while (scanningRef.current) {
       await new Promise((resolve) => window.setTimeout(resolve, 650))
-      if (busyRef.current || !currentLectureIdRef.current) continue
+      if (busyRef.current || !currentLectureIdRef.current || Date.now() < recognitionRetryAfterRef.current) continue
       const probe = captureCanvas(0.28)
       if (!probe) continue
       try {
@@ -157,7 +159,20 @@ export function AttendanceTerminal() {
     }
   }
 
+  function recordRecognitionFailure(reason: string) {
+    const attempt = recognitionFailuresRef.current + 1
+    if (attempt >= 3) {
+      recognitionFailuresRef.current = 0
+      recognitionRetryAfterRef.current = Date.now() + 3000
+      setStatus(`Not recognized after 3 attempts. ${reason} Improve lighting, move closer, and try again.`)
+      return
+    }
+    recognitionFailuresRef.current = attempt
+    setStatus(`Verification attempt ${attempt} of 3 was unsuccessful. ${reason} Retrying...`)
+  }
+
   async function recognizeBurst() {
+    const attempt = Math.min(3, recognitionFailuresRef.current + 1)
     const latestData = latestDataRef.current
     const latestAllowedIds = new Set((latestData?.courseMemberships ?? [])
       .filter((item) => item.course_id === course?.id && !item.deleted_at)
@@ -177,7 +192,7 @@ export function AttendanceTerminal() {
 
     busyRef.current = true
     setError('')
-    setStatus('Face detected. Verifying...')
+    setStatus(`Face detected. Verification attempt ${attempt} of 3...`)
 
     const vectors: number[][] = []
     const votes = new Map<string, number>()
@@ -190,25 +205,27 @@ export function AttendanceTerminal() {
         const regions = await detectFaceRegions(canvas)
         if (regions.length !== 1) {
           qualityMessage = regions.length ? 'Only one person can be in the face zone.' : 'Keep your face centered.'
-          await new Promise((resolve) => window.setTimeout(resolve, 120))
+          await new Promise((resolve) => window.setTimeout(resolve, 140))
           continue
         }
-        const result = await createEmbeddingFromCanvas(canvas, 'cpu', regions[0], regions.length)
+
+        const result = await createEmbeddingFromCanvas(canvas, 'cpu', regions[0], regions.length, 'attendance')
         if (!result.quality.ok) {
           qualityMessage = result.quality.messages.join('. ')
-          await new Promise((resolve) => window.setTimeout(resolve, 120))
+          await new Promise((resolve) => window.setTimeout(resolve, 140))
           continue
         }
+
         vectors.push(result.vector)
-        const bestFrame = embeddings
+        const frameBest = embeddings
           .map((embedding) => ({ studentId: embedding.student_id, score: cosineSimilarity(result.vector, embedding.vector) }))
           .sort((left, right) => right.score - left.score)[0]
-        if (bestFrame) votes.set(bestFrame.studentId, (votes.get(bestFrame.studentId) ?? 0) + 1)
-        await new Promise((resolve) => window.setTimeout(resolve, 120))
+        if (frameBest) votes.set(frameBest.studentId, (votes.get(frameBest.studentId) ?? 0) + 1)
+        await new Promise((resolve) => window.setTimeout(resolve, 140))
       }
 
       if (vectors.length < 2) {
-        setStatus(qualityMessage || 'Hold still inside the face zone')
+        recordRecognitionFailure(qualityMessage || 'The camera could not capture two usable frames.')
         return
       }
 
@@ -220,10 +237,21 @@ export function AttendanceTerminal() {
       const second = ranked.find((candidate) => candidate.embedding.student_id !== best?.embedding.student_id)
       const voteCount = best ? votes.get(best.embedding.student_id) ?? 0 : 0
       const margin = best ? best.score - (second?.score ?? 0) : 0
-      const verified = Boolean(best && best.score >= recognitionThreshold && voteCount >= 2 && margin >= recognitionMargin)
+      const attemptThreshold = recognitionThresholdForAttempt(recognitionThreshold, attempt)
+      const verified = Boolean(
+        best
+        && best.score >= attemptThreshold
+        && voteCount >= 2
+        && margin >= recognitionMargin
+      )
 
       if (!verified || !best) {
-        setStatus('Face not recognized. Move closer and look directly at the camera')
+        const reason = voteCount < 2
+          ? 'The captured frames did not agree.'
+          : margin < recognitionMargin
+            ? 'The match was too close to another student.'
+            : `Match confidence was below ${Math.round(attemptThreshold * 100)}%.`
+        recordRecognitionFailure(reason)
         return
       }
 
@@ -231,10 +259,13 @@ export function AttendanceTerminal() {
       const alreadyStored = !canInsertAttendance(latestData?.attendance ?? [], lecture, best.embedding.student_id)
       if (alreadyStored || recentlyMarkedRef.current.has(best.embedding.student_id)) {
         const profile = latestStudents.find((student) => student.id === best.embedding.student_id)
+        recognitionFailuresRef.current = 0
         setStatus(`${profile?.full_name ?? 'Student'} is already marked present`)
         return
       }
 
+      recognitionFailuresRef.current = 0
+      recognitionRetryAfterRef.current = 0
       recentlyMarkedRef.current.add(best.embedding.student_id)
       await markAttendanceRecord({
         lectureId: lecture,
@@ -242,7 +273,7 @@ export function AttendanceTerminal() {
         status: 'present',
         confidence: Number(best.score.toFixed(4)),
         source: 'face',
-        reason: `3-frame consensus (${voteCount}/${vectors.length}), margin ${margin.toFixed(3)}`,
+        reason: `3-frame consensus (${voteCount}/${vectors.length}), attempt ${attempt}, margin ${margin.toFixed(3)}`,
       })
       const profile = latestStudents.find((student) => student.id === best.embedding.student_id)
       setStatus(`Marked ${profile?.full_name ?? 'student'} present (${Math.round(best.score * 100)}%)`)

@@ -15,6 +15,11 @@ const detectorModel = (import.meta.env.VITE_FACE_DETECTOR_MODEL as string | unde
 const visionWasm = (import.meta.env.VITE_MEDIAPIPE_WASM_PATH as string | undefined)
   ?? 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm'
 
+const configuredDetectionConfidence = Number(import.meta.env.VITE_FACE_DETECTION_CONFIDENCE ?? 0.55)
+const detectionConfidence = Number.isFinite(configuredDetectionConfidence)
+  ? Math.min(0.9, Math.max(0.3, configuredDetectionConfidence))
+  : 0.55
+
 let nativeDetector: NativeDetector | null | undefined
 let mediaPipeDetectorPromise: Promise<import('@mediapipe/tasks-vision').FaceDetector> | null = null
 
@@ -32,7 +37,7 @@ async function getMediaPipeDetector() {
       return FaceDetector.createFromOptions(files, {
         baseOptions: { modelAssetPath: detectorModel, delegate: 'CPU' },
         runningMode: 'IMAGE',
-        minDetectionConfidence: 0.65,
+        minDetectionConfidence: detectionConfidence,
         minSuppressionThreshold: 0.3,
       })
     }).catch((error) => {

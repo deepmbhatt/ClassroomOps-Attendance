@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { canInsertAttendance, ensureOnlineForAttendance, normalizeAttendanceStatus } from '../lib/attendance'
+import { canInsertAttendance, ensureOnlineForAttendance, normalizeAttendanceStatus, recognitionThresholdForAttempt } from '../lib/attendance'
 import { attendanceTone, effectiveAttendanceStatus, localDateKey } from '../lib/attendanceView'
 import { cameraErrorMessage } from '../lib/camera'
 import { canTransitionEnrollment, isEnrollmentLocked } from '../lib/enrollmentState'
 import { previewImport } from '../lib/importValidation'
-import { averageEmbeddings, cosineSimilarity } from '../lib/faceEngine'
+import { averageEmbeddings, cosineSimilarity, faceQualityLimits } from '../lib/faceEngine'
 
 describe('enrollment state machine', () => {
   it('allows the intended happy path and rejects unsafe duplicate processing paths', () => {
@@ -90,5 +90,21 @@ describe('camera diagnostics', () => {
     const error = new Error('Could not start video source')
     error.name = 'NotReadableError'
     expect(cameraErrorMessage(error)).toMatch(/close Zoom, Meet, Teams/i)
+  })
+})
+
+
+describe('low-quality attendance tolerance', () => {
+  it('keeps enrollment strict while allowing a moderate attendance profile', () => {
+    expect(faceQualityLimits.attendance.minimumSharpness).toBeLessThan(faceQualityLimits.strict.minimumSharpness)
+    expect(faceQualityLimits.attendance.minimumBrightness).toBeLessThan(faceQualityLimits.strict.minimumBrightness)
+    expect(faceQualityLimits.attendance.minimumScore).toBeLessThan(faceQualityLimits.strict.minimumScore)
+  })
+
+  it('relaxes matching only slightly across three attempts and never below the floor', () => {
+    expect(recognitionThresholdForAttempt(0.58, 1)).toBeCloseTo(0.58)
+    expect(recognitionThresholdForAttempt(0.58, 2)).toBeCloseTo(0.57)
+    expect(recognitionThresholdForAttempt(0.58, 3)).toBeCloseTo(0.56)
+    expect(recognitionThresholdForAttempt(0.50, 3)).toBeCloseTo(0.54)
   })
 })

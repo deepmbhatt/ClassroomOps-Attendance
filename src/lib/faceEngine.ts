@@ -3,6 +3,7 @@ import type { FaceEmbedding } from '../types'
 import type { FaceRegion } from './faceDetection'
 
 export type ComputeMode = 'auto' | 'cpu' | 'gpu'
+export type FaceQualityMode = 'strict' | 'attendance'
 
 export interface FaceQuality {
   ok: boolean
@@ -85,11 +86,22 @@ export function isEmbeddingCompatible(embedding: Pick<FaceEmbedding, 'model_vers
   return embedding.model_version === currentModelVersion && embedding.pipeline_version === currentPipelineVersion
 }
 
-export function scoreFrame(canvas: HTMLCanvasElement, region?: FaceRegion, faceCount = 1): FaceQuality {
+export const faceQualityLimits = {
+  strict: { minimumFaceSize: 90, minimumBrightness: 38, maximumBrightness: 225, minimumSharpness: 5, minimumScore: 0.48 },
+  attendance: { minimumFaceSize: 72, minimumBrightness: 28, maximumBrightness: 235, minimumSharpness: 3.2, minimumScore: 0.38 },
+} as const
+
+export function scoreFrame(
+  canvas: HTMLCanvasElement,
+  region?: FaceRegion,
+  faceCount = 1,
+  qualityMode: FaceQualityMode = 'strict',
+): FaceQuality {
+  const limits = faceQualityLimits[qualityMode]
   const messages: string[] = []
   if (faceCount !== 1) messages.push('Exactly one face must be visible')
   if (!region) messages.push('A face could not be located')
-  if (region && Math.min(region.width, region.height) < 90) messages.push('Move closer to the camera')
+  if (region && Math.min(region.width, region.height) < limits.minimumFaceSize) messages.push('Move closer to the camera')
 
   const crop = region ? paddedSquare(region, canvas.width, canvas.height) : {
     x: 0,
@@ -119,15 +131,15 @@ export function scoreFrame(canvas: HTMLCanvasElement, region?: FaceRegion, faceC
   }
   sharpness /= 62 * 62 * 2
 
-  if (brightness < 38) messages.push('Lighting is too dark')
-  if (brightness > 225) messages.push('Lighting is too bright')
-  if (sharpness < 5) messages.push('Hold still; the face image is blurred')
+  if (brightness < limits.minimumBrightness) messages.push('Lighting is too dark')
+  if (brightness > limits.maximumBrightness) messages.push('Lighting is too bright')
+  if (sharpness < limits.minimumSharpness) messages.push('Hold still; the face image is blurred')
 
   const sizeScore = region ? Math.min(1, Math.min(region.width, region.height) / 180) : 0
   const lightScore = Math.max(0, 1 - Math.abs(brightness - 130) / 130)
   const sharpScore = Math.min(1, sharpness / 15)
   const score = sizeScore * 0.45 + lightScore * 0.2 + sharpScore * 0.35
-  return { ok: messages.length === 0 && score >= 0.48, score, messages }
+  return { ok: messages.length === 0 && score >= limits.minimumScore, score, messages }
 }
 
 export async function createEmbeddingFromCanvas(
@@ -135,8 +147,9 @@ export async function createEmbeddingFromCanvas(
   mode: ComputeMode,
   region?: FaceRegion,
   faceCount = region ? 1 : 0,
+  qualityMode: FaceQualityMode = 'strict',
 ): Promise<EmbeddingResult> {
-  const quality = scoreFrame(canvas, region, faceCount)
+  const quality = scoreFrame(canvas, region, faceCount, qualityMode)
   const modes = await getAvailableComputeModes()
   const backend = mode === 'gpu' || (mode === 'auto' && modes.gpu) ? 'webgpu' : 'wasm'
 
