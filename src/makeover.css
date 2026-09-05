@@ -330,3 +330,28 @@ textarea { min-height: 145px; }
   .approval-summary .icon-text { width: 100%; margin-left: 0; }
 }
 .login-visual::before { content: ""; position: absolute; inset: 0; z-index: -1; background: rgb(12 26 34 / 88%); }
+
+/* Camera and attendance robustness */
+.selfie-preview { transform: scaleX(-1); }
+.capture-message { display: block; margin-top: .35rem; color: var(--muted); }
+.row-action-group { display: flex; align-items: center; gap: .35rem; }
+.danger-button:not(:disabled) { color: var(--danger, #b42318); }
+.danger-button:not(:disabled):hover { border-color: var(--danger, #b42318); background: #fff2f0; }
+.scan-only-layout .live-camera-stage::after { display: none; }
+.scan-only-layout .live-camera-stage { width: 100%; min-height: 0; aspect-ratio: 16 / 9; }
+.scan-only-layout .live-camera-stage video { position: absolute; inset: 0; }
+.terminal-status { display: flex; align-items: center; flex-wrap: wrap; gap: .55rem; }
+@media (max-width: 760px) {
+  .camera-card { padding: .65rem; }
+  .camera-stage { width: 100%; aspect-ratio: 3 / 4; max-height: 72vh; }
+  .camera-stage video { object-position: center; }
+  .face-zone { width: min(58%, 230px); box-shadow: none; border-width: 2px; }
+  .capture-toolbar, .capture-toolbar > div { align-items: stretch; }
+  .capture-toolbar .toolbar-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; }
+  .capture-toolbar .toolbar-actions .icon-text { width: 100%; min-width: 0; padding-inline: .45rem; }
+  .frame-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .scan-only-layout .live-camera-stage { min-height: 0; aspect-ratio: 4 / 3; }
+  .terminal-camera-card { padding: .65rem; }
+  .terminal-camera-card .toolbar-actions { display: grid; grid-template-columns: 1fr; }
+  .terminal-camera-card .toolbar-actions .icon-text { width: 100%; }
+}

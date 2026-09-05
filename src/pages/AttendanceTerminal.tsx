@@ -15,6 +15,18 @@ const configuredMargin = Number(import.meta.env.VITE_FACE_MATCH_MARGIN ?? 0.06)
 const recognitionThreshold = Number.isFinite(configuredThreshold) ? configuredThreshold : 0.58
 const recognitionMargin = Number.isFinite(configuredMargin) ? configuredMargin : 0.06
 
+let recognitionWarmupPromise: Promise<void> | null = null
+
+function warmRecognition() {
+  recognitionWarmupPromise ??= Promise.all([preloadFaceDetector(), preloadFaceEngine('cpu')])
+    .then(() => undefined)
+    .catch((error) => {
+      recognitionWarmupPromise = null
+      throw error
+    })
+  return recognitionWarmupPromise
+}
+
 export function AttendanceTerminal() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -36,6 +48,8 @@ export function AttendanceTerminal() {
   const [cameraRunning, setCameraRunning] = useState(false)
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
   const [selectedDeviceId, setSelectedDeviceId] = useState('')
+  const [mirrored, setMirrored] = useState(true)
+  const [recognitionState, setRecognitionState] = useState<'idle' | 'loading' | 'ready'>('idle')
 
   const course = data?.courses.find((item) => item.id === courseId) ?? data?.courses.find((item) => item.active) ?? data?.courses[0]
   const activeLecture = data?.lectures.find((lecture) => lecture.id === lectureId)
@@ -59,6 +73,20 @@ export function AttendanceTerminal() {
 
   useEffect(() => { latestDataRef.current = data }, [data])
   useEffect(() => { currentLectureIdRef.current = effectiveLectureId }, [effectiveLectureId])
+  useEffect(() => {
+    if (!readyEmbeddings.length) {
+      setRecognitionState('idle')
+      return
+    }
+    let mounted = true
+    setRecognitionState('loading')
+    void warmRecognition().then(() => {
+      if (mounted) setRecognitionState('ready')
+    }).catch(() => {
+      if (mounted) setRecognitionState('idle')
+    })
+    return () => { mounted = false }
+  }, [readyEmbeddings.length])
   useEffect(() => {
     return () => {
       scanningRef.current = false
@@ -96,7 +124,9 @@ export function AttendanceTerminal() {
       setCameraRunning(true)
       const inputs = await listVideoInputs()
       setDevices(inputs)
-      const activeDeviceId = stream.getVideoTracks()[0]?.getSettings().deviceId
+      const cameraSettings = stream.getVideoTracks()[0]?.getSettings()
+      const activeDeviceId = cameraSettings?.deviceId
+      setMirrored(cameraSettings?.facingMode !== 'environment')
       if (activeDeviceId) setSelectedDeviceId(activeDeviceId)
 
       if (!students.length) {
@@ -110,9 +140,9 @@ export function AttendanceTerminal() {
         return
       }
 
-      setStatus('Camera ready. Loading face recognition...')
-      await ensureSession()
-      await Promise.all([preloadFaceDetector(), preloadFaceEngine('cpu')])
+      setStatus(recognitionState === 'ready' ? 'Starting scanner...' : 'Finishing recognition setup...')
+      await Promise.all([ensureSession(), warmRecognition()])
+      setRecognitionState('ready')
       scanningRef.current = true
       setStatus('Scanning for faces')
       void scanLoop()
@@ -152,23 +182,25 @@ export function AttendanceTerminal() {
       try {
         const faces = await detectFaceRegions(probe)
         if (faces.length === 1) await recognizeBurst()
-        else if (faces.length > 1) setStatus('Only one person should stand in the face zone')
+
       } catch (nextError) {
-        setError(nextError instanceof Error ? nextError.message : 'Recognition failed.')
+        scanningRef.current = false
+        setError(nextError instanceof Error ? nextError.message : 'Recognition stopped unexpectedly.')
+        setStatus('Scanner paused')
       }
     }
   }
 
-  function recordRecognitionFailure(reason: string) {
+  function recordRecognitionFailure() {
     const attempt = recognitionFailuresRef.current + 1
     if (attempt >= 3) {
       recognitionFailuresRef.current = 0
-      recognitionRetryAfterRef.current = Date.now() + 3000
-      setStatus(`Not recognized after 3 attempts. ${reason} Improve lighting, move closer, and try again.`)
+      recognitionRetryAfterRef.current = Date.now() + 3500
+      setStatus('Face not verified. Ready for another scan.')
       return
     }
     recognitionFailuresRef.current = attempt
-    setStatus(`Verification attempt ${attempt} of 3 was unsuccessful. ${reason} Retrying...`)
+    setStatus('Checking face again (' + (attempt + 1) + ' of 3)...')
   }
 
   async function recognizeBurst() {
@@ -196,7 +228,6 @@ export function AttendanceTerminal() {
 
     const vectors: number[][] = []
     const votes = new Map<string, number>()
-    let qualityMessage = ''
 
     try {
       for (let index = 0; index < 3; index += 1) {
@@ -204,14 +235,12 @@ export function AttendanceTerminal() {
         if (!canvas) continue
         const regions = await detectFaceRegions(canvas)
         if (regions.length !== 1) {
-          qualityMessage = regions.length ? 'Only one person can be in the face zone.' : 'Keep your face centered.'
           await new Promise((resolve) => window.setTimeout(resolve, 140))
           continue
         }
 
         const result = await createEmbeddingFromCanvas(canvas, 'cpu', regions[0], regions.length, 'attendance')
         if (!result.quality.ok) {
-          qualityMessage = result.quality.messages.join('. ')
           await new Promise((resolve) => window.setTimeout(resolve, 140))
           continue
         }
@@ -225,7 +254,7 @@ export function AttendanceTerminal() {
       }
 
       if (vectors.length < 2) {
-        recordRecognitionFailure(qualityMessage || 'The camera could not capture two usable frames.')
+        recordRecognitionFailure()
         return
       }
 
@@ -246,12 +275,7 @@ export function AttendanceTerminal() {
       )
 
       if (!verified || !best) {
-        const reason = voteCount < 2
-          ? 'The captured frames did not agree.'
-          : margin < recognitionMargin
-            ? 'The match was too close to another student.'
-            : `Match confidence was below ${Math.round(attemptThreshold * 100)}%.`
-        recordRecognitionFailure(reason)
+        recordRecognitionFailure()
         return
       }
 
@@ -322,12 +346,12 @@ export function AttendanceTerminal() {
               {devices.length > 1 ? <label>Camera<select value={selectedDeviceId} disabled={cameraRunning} onChange={(event) => setSelectedDeviceId(event.target.value)}>{devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}</select></label> : null}
             </div>
             <div className="live-camera-stage">
-              <video ref={videoRef} autoPlay playsInline muted />
-              <div className="face-zone" />
+              <video ref={videoRef} className={mirrored ? 'selfie-preview' : undefined} autoPlay playsInline muted />
               {!cameraRunning ? <div className="camera-placeholder"><ScanFace size={42} /><strong>Camera is off</strong><span>Start scanning when the class is ready.</span></div> : null}
             </div>
             <div className="terminal-status">
               <StatusPill tone={cameraRunning ? 'good' : 'neutral'}>{cameraRunning ? 'continuous scan' : 'camera off'}</StatusPill>
+              <StatusPill tone={recognitionState === 'ready' ? 'good' : 'neutral'}>{recognitionState === 'ready' ? 'recognition ready' : recognitionState === 'loading' ? 'preparing recognition' : 'recognition idle'}</StatusPill>
               <span>{readyEmbeddings.length} faces ready / {students.length} enrolled</span>
               {error ? <span className="form-error">{error}</span> : null}
             </div>

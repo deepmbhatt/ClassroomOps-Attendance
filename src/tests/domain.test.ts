@@ -64,10 +64,10 @@ describe('face embedding decisions', () => {
 
 
 describe('attendance views', () => {
-  it('treats an unmarked closed session as absent but keeps an active session pending', () => {
+  it('keeps missing attendance unmarked after a record is removed', () => {
     const closed = { id: 'l1', course_id: 'c1', course_code: 'CS601', title: 'Lecture', started_at: '2026-09-02T09:00:00+05:30', status: 'closed' as const }
     const active = { ...closed, id: 'l2', status: 'active' as const }
-    expect(effectiveAttendanceStatus(closed)).toBe('absent')
+    expect(effectiveAttendanceStatus(closed)).toBeUndefined()
     expect(effectiveAttendanceStatus(active)).toBeUndefined()
     expect(attendanceTone('present')).toBe('good')
     expect(attendanceTone('absent')).toBe('danger')

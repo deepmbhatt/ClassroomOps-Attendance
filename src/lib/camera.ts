@@ -28,9 +28,9 @@ export async function requestCamera(deviceId?: string) {
   const preferred: MediaStreamConstraints = {
     video: {
       ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: 'user' } }),
-      width: { ideal: 1280 },
+      width: { ideal: 960 },
       height: { ideal: 720 },
-      frameRate: { ideal: 24, max: 30 },
+      frameRate: { ideal: 20, max: 24 },
     },
     audio: false,
   }

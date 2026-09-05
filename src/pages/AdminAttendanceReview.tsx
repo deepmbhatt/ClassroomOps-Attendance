@@ -1,15 +1,15 @@
-import { Download, FileDown, Save, Upload } from 'lucide-react'
+import { Download, FileDown, Save, Trash2, Upload } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChangeEvent, useEffect, useMemo, useState } from 'react'
 import { Card, EmptyState, IconButton, PageHeader, Spinner, StatusPill } from '../components/Layout'
-import { loadAppData, markAttendanceRecords } from '../lib/api'
+import { deleteAttendanceRecord, loadAppData, markAttendanceRecords } from '../lib/api'
 import { attendanceTone, localDateKey } from '../lib/attendanceView'
 import { parseCsv, readTabularFile } from '../lib/importValidation'
 import { normalizeAttendanceStatus } from '../lib/attendance'
 import type { AttendanceStatus } from '../types'
 
 interface AttendanceEdit {
-  status: AttendanceStatus
+  status: AttendanceStatus | ''
   markedAt: string
   reason: string
   dirty: boolean
@@ -62,7 +62,7 @@ export function AdminAttendanceReview() {
   function editFor(studentId: string): AttendanceEdit {
     const record = data!.attendance.find((item) => item.lecture_id === selectedSession?.id && item.student_id === studentId)
     return edits[studentId] ?? {
-      status: record?.status ?? 'absent',
+      status: record?.status ?? '',
       markedAt: toLocalDateTime(record?.marked_at ?? selectedSession?.started_at),
       reason: record?.reason ?? '',
       dirty: false,
@@ -78,21 +78,43 @@ export function AdminAttendanceReview() {
     setSaving(true)
     setMessage('')
     try {
-      await markAttendanceRecords(studentIds.map((studentId) => {
+      const validStudentIds = studentIds.filter((studentId) => editFor(studentId).status)
+      if (!validStudentIds.length) throw new Error('Choose an attendance status before saving.')
+      await markAttendanceRecords(validStudentIds.map((studentId) => {
         const edit = editFor(studentId)
         return {
           lectureId: selectedSession.id,
           studentId,
-          status: edit.status,
+          status: edit.status as AttendanceStatus,
           reason: edit.reason || 'Updated during attendance review',
           markedAt: new Date(edit.markedAt).toISOString(),
         }
       }))
       setEdits({})
-      setMessage(`${studentIds.length} attendance record${studentIds.length === 1 ? '' : 's'} saved.`)
+      setMessage(validStudentIds.length + ' attendance record' + (validStudentIds.length === 1 ? '' : 's') + ' saved.')
       await queryClient.invalidateQueries({ queryKey: ['app-data'] })
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Attendance could not be saved.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function removeRecord(studentId: string, recordId: string) {
+    if (!window.confirm('Remove this attendance status from the selected session?')) return
+    setSaving(true)
+    setMessage('')
+    try {
+      await deleteAttendanceRecord(recordId)
+      setEdits((current) => {
+        const next = { ...current }
+        delete next[studentId]
+        return next
+      })
+      setMessage('Attendance status removed. The student is now not marked for this session.')
+      await queryClient.invalidateQueries({ queryKey: ['app-data'] })
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Attendance status could not be removed.')
     } finally {
       setSaving(false)
     }
@@ -147,7 +169,7 @@ export function AdminAttendanceReview() {
     const rows = [['Student ID', 'Name', 'Course', 'Session', 'Date', 'Status', 'Marked At', 'Source', 'Reason']]
     students.forEach((student) => {
       const record = data!.attendance.find((item) => item.lecture_id === selectedSession.id && item.student_id === student.id)
-      rows.push([student.student_id ?? '', student.full_name, selectedSession.course_code, selectedSession.title, localDateKey(selectedSession.started_at), record?.status ?? 'absent', record?.marked_at ?? '', record?.source ?? 'unmarked', record?.reason ?? ''])
+      rows.push([student.student_id ?? '', student.full_name, selectedSession.course_code, selectedSession.title, localDateKey(selectedSession.started_at), record?.status ?? '', record?.marked_at ?? '', record?.source ?? 'unmarked', record?.reason ?? ''])
     })
     downloadCsv(`${selectedSession.course_code}-${localDateKey(selectedSession.started_at)}-attendance.csv`, rows.map((row) => row.map(csvCell).join(',')).join('\n'))
   }
@@ -183,17 +205,17 @@ export function AdminAttendanceReview() {
         </div>
         <div className="table-scroll">
           <table className="editable-table attendance-review-table">
-            <thead><tr><th>Student</th><th>Status</th><th>Marked at</th><th>Reason</th><th>Source</th><th>Save</th></tr></thead>
+            <thead><tr><th>Student</th><th>Status</th><th>Marked at</th><th>Reason</th><th>Source</th><th>Actions</th></tr></thead>
             <tbody>{students.map((student) => {
               const edit = editFor(student.id)
               const record = data.attendance.find((item) => item.lecture_id === selectedSession.id && item.student_id === student.id)
               return <tr key={student.id} className={edit.dirty ? 'edited-row' : undefined}>
                 <td><strong>{student.full_name}</strong><small>{student.student_id}</small></td>
-                <td><select className={`attendance-status-select ${attendanceTone(edit.status)}`} value={edit.status} onChange={(event) => updateEdit(student.id, { status: event.target.value as AttendanceStatus })}><option value="present">Present</option><option value="absent">Absent</option><option value="late">Late</option><option value="excused">Excused</option><option value="manual_review">Manual review</option></select></td>
+                <td><select className={`attendance-status-select ${attendanceTone(edit.status || undefined)}`} value={edit.status} onChange={(event) => updateEdit(student.id, { status: event.target.value as AttendanceStatus | "" })}><option value="">Not marked</option><option value="present">Present</option><option value="absent">Absent</option><option value="late">Late</option><option value="excused">Excused</option><option value="manual_review">Manual review</option></select></td>
                 <td><input type="datetime-local" value={edit.markedAt} onChange={(event) => updateEdit(student.id, { markedAt: event.target.value })} /></td>
                 <td><input value={edit.reason} onChange={(event) => updateEdit(student.id, { reason: event.target.value })} placeholder="Reason for change" /></td>
                 <td>{record?.source ?? 'not marked'}</td>
-                <td><button className="icon-only-button" title="Save this attendance row" disabled={saving} onClick={() => void saveRows([student.id])}><Save size={15} /></button></td>
+                <td><div className="row-action-group"><button className="icon-only-button" title="Save this attendance row" disabled={saving || !edit.status} onClick={() => void saveRows([student.id])}><Save size={15} /></button><button className="icon-only-button danger-button" title="Remove attendance status for this session" disabled={saving || !record} onClick={() => record && void removeRecord(student.id, record.id)}><Trash2 size={15} /></button></div></td>
               </tr>
             })}</tbody>
           </table>

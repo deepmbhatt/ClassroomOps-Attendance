@@ -84,8 +84,8 @@ export function StudentAttendance() {
                 <td><strong>{new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(row.session.started_at))}</strong><small>{new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit' }).format(new Date(row.session.started_at))}</small></td>
                 <td>{row.session.title}<small>{row.session.session_type ?? 'lecture'}</small></td>
                 <td>{row.session.course_code}</td>
-                <td><StatusPill tone={attendanceTone(row.status)}>{row.status?.replace('_', ' ') ?? 'in progress'}</StatusPill></td>
-                <td>{row.record?.source ?? (row.session.status === 'active' ? 'Awaiting finalization' : 'Session finalization')}</td>
+                <td><StatusPill tone={attendanceTone(row.status)}>{row.status?.replace('_', ' ') ?? (row.session.status === 'active' ? 'in progress' : 'not marked')}</StatusPill></td>
+                <td>{row.record?.source ?? (row.session.status === 'active' ? 'Awaiting finalization' : '-')}</td>
                 <td>{row.status === 'absent'
                   ? issue
                     ? <StatusPill tone={issue.status === 'resolved' ? 'good' : 'warn'}>{issue.status.replace('_', ' ')}</StatusPill>

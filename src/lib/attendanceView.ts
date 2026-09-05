@@ -9,8 +9,8 @@ export function localDateKey(value: string | Date) {
 }
 
 export function effectiveAttendanceStatus(session: LectureSession, record?: AttendanceRecord): AttendanceStatus | undefined {
-  if (record) return record.status
-  return session.status === 'closed' ? 'absent' : undefined
+  void session
+  return record?.status
 }
 
 export function attendanceTone(status?: AttendanceStatus): 'good' | 'warn' | 'danger' | 'neutral' {

@@ -87,8 +87,8 @@ export function isEmbeddingCompatible(embedding: Pick<FaceEmbedding, 'model_vers
 }
 
 export const faceQualityLimits = {
-  strict: { minimumFaceSize: 90, minimumBrightness: 38, maximumBrightness: 225, minimumSharpness: 5, minimumScore: 0.48 },
-  attendance: { minimumFaceSize: 72, minimumBrightness: 28, maximumBrightness: 235, minimumSharpness: 3.2, minimumScore: 0.38 },
+  strict: { minimumFaceSize: 72, minimumBrightness: 28, maximumBrightness: 235, minimumSharpness: 3.2, minimumScore: 0.38 },
+  attendance: { minimumFaceSize: 56, minimumBrightness: 20, maximumBrightness: 242, minimumSharpness: 2.2, minimumScore: 0.3 },
 } as const
 
 export function scoreFrame(
@@ -199,6 +199,19 @@ function paddedSquare(region: FaceRegion, maxWidth: number, maxHeight: number) {
     y: Math.max(0, Math.min(maxHeight - size, centerY - size / 2)),
     size,
   }
+}
+
+export function cropFaceCanvas(canvas: HTMLCanvasElement, region: FaceRegion, outputSize = 384) {
+  const crop = paddedSquare(region, canvas.width, canvas.height)
+  const output = document.createElement('canvas')
+  output.width = outputSize
+  output.height = outputSize
+  const context = output.getContext('2d')
+  if (!context) throw new Error('Canvas is unavailable')
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = 'high'
+  context.drawImage(canvas, crop.x, crop.y, crop.size, crop.size, 0, 0, outputSize, outputSize)
+  return output
 }
 
 async function canvasToTensor(canvas: HTMLCanvasElement, region?: FaceRegion): Promise<OrtTensor> {

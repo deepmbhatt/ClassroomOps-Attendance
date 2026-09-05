@@ -1,6 +1,8 @@
 import { Camera, Check, RefreshCw, RotateCcw, ShieldAlert, Video } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { attachCameraStream, listVideoInputs, requestCamera, stopCameraStream } from '../lib/camera'
+import { detectFaceRegions, preloadFaceDetector } from '../lib/faceDetection'
+import { cropFaceCanvas } from '../lib/faceEngine'
 import { Card, IconButton, StatusPill } from './Layout'
 
 export interface CapturedFrame {
@@ -29,6 +31,9 @@ export function CameraCapture({
   const [frames, setFrames] = useState<CapturedFrame[]>([])
   const [error, setError] = useState('')
   const [starting, setStarting] = useState(false)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [mirrored, setMirrored] = useState(true)
+  const [captureMessage, setCaptureMessage] = useState('')
 
   useEffect(() => {
     if (!locked) void startCamera()
@@ -58,8 +63,11 @@ export function CameraCapture({
       setStream(next)
       const inputs = await listVideoInputs()
       setDevices(inputs)
-      const activeDeviceId = next.getVideoTracks()[0]?.getSettings().deviceId
+      const settings = next.getVideoTracks()[0]?.getSettings()
+      const activeDeviceId = settings?.deviceId
+      setMirrored(settings?.facingMode !== 'environment')
       if (activeDeviceId) setSelectedDeviceId(activeDeviceId)
+      void preloadFaceDetector().catch(() => undefined)
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Camera could not start.')
     } finally {
@@ -84,31 +92,46 @@ export function CameraCapture({
   const nextPrompt = prompts[frames.length] ?? 'Complete'
   const complete = frames.length >= prompts.length
 
-  function capture() {
+  async function capture() {
     const video = videoRef.current
-    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || locked || complete) return
+    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || locked || complete || analyzing) return
+    setAnalyzing(true)
+    setCaptureMessage('Checking and cropping face...')
     const canvas = document.createElement('canvas')
     canvas.width = video.videoWidth || 640
     canvas.height = video.videoHeight || 480
     const context = canvas.getContext('2d')
-    if (!context) return
+    if (!context) {
+      setAnalyzing(false)
+      return
+    }
     context.drawImage(video, 0, 0, canvas.width, canvas.height)
-    setFrames((current) => [
-      ...current,
-      {
+    try {
+      const regions = await detectFaceRegions(canvas)
+      if (regions.length !== 1) {
+        setCaptureMessage(regions.length > 1 ? 'Only one face can be captured.' : 'Face not found yet. Hold steady and capture again.')
+        return
+      }
+      const cropped = cropFaceCanvas(canvas, regions[0])
+      setFrames((current) => [...current, {
         id: crypto.randomUUID(),
-        dataUrl: canvas.toDataURL('image/jpeg', 0.84),
+        dataUrl: cropped.toDataURL('image/jpeg', 0.88),
         label: prompts[current.length],
-        width: canvas.width,
-        height: canvas.height,
-      },
-    ])
+        width: cropped.width,
+        height: cropped.height,
+      }])
+      setCaptureMessage('Face cropped automatically.')
+    } catch {
+      setCaptureMessage('Face check is still loading. Hold steady and try capture again.')
+    } finally {
+      setAnalyzing(false)
+    }
   }
 
   return (
     <Card className="camera-card">
       <div className="camera-stage">
-        <video ref={videoRef} autoPlay playsInline muted />
+        <video ref={videoRef} className={mirrored ? 'selfie-preview' : undefined} autoPlay playsInline muted />
         {!stream || error ? (
           <div className="camera-error">
             {error ? <ShieldAlert size={38} /> : <Video size={38} />}
@@ -133,15 +156,16 @@ export function CameraCapture({
             {complete ? 'Frames ready' : nextPrompt}
           </StatusPill>
           <small>{frames.length}/3 representative frames</small>
+          {captureMessage ? <small className="capture-message" aria-live="polite">{captureMessage}</small> : null}
         </div>
         <div className="toolbar-actions">
           <IconButton disabled={locked || frames.length === 0} onClick={() => setFrames([])}>
             <RotateCcw size={16} />
             Reset
           </IconButton>
-          <IconButton className="primary" disabled={locked || !stream || complete} onClick={capture}>
+          <IconButton className="primary" disabled={locked || !stream || complete || analyzing} onClick={() => void capture()}>
             <Camera size={16} />
-            Capture
+            {analyzing ? 'Checking...' : 'Capture'}
           </IconButton>
           <IconButton className="success" disabled={!complete || locked} onClick={() => onComplete(frames)}>
             <Check size={16} />
@@ -152,7 +176,7 @@ export function CameraCapture({
       <div className="frame-strip">
         {frames.map((frame) => (
           <figure key={frame.id}>
-            <img src={frame.dataUrl} alt={frame.label} />
+            <img className={mirrored ? 'selfie-preview' : undefined} src={frame.dataUrl} alt={frame.label} />
             <figcaption>{frame.label}</figcaption>
           </figure>
         ))}

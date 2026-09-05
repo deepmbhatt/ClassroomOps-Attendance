@@ -376,6 +376,13 @@ export async function closeLectureSession(lectureId: string) {
   return Number(data ?? 0)
 }
 
+export async function deleteAttendanceRecord(recordId: string) {
+  if (devBypass) return
+  const supabase = requireSupabase()
+  const { error } = await supabase.from('attendance_records').delete().eq('id', recordId)
+  if (error) throw error
+}
+
 export async function markAttendanceRecords(inputs: Array<{
   lectureId: string
   studentId: string
