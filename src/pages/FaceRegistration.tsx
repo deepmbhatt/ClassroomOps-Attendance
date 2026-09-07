@@ -59,6 +59,7 @@ export function FaceRegistration() {
             <span>I consent to private storage of selected face frames for attendance enrollment and future model reprocessing.</span>
           </label>
           {locked ? <p className="notice"><Lock size={16} /> Face registration is locked because upload is queued, processing, or ready.</p> : null}
+          {currentState.includes('failed') ? <p className="notice"><AlertTriangle size={16} /> Your next submission replaces the failed capture completely. Previous frames and embeddings will not be reused.</p> : null}
           {submitEnrollment.error ? <p className="form-error">{submitEnrollment.error instanceof Error ? submitEnrollment.error.message : 'Could not submit face enrollment'}</p> : null}
         </Card>
         {consented || locked || submitEnrollment.isPending ? (

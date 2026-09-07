@@ -234,47 +234,83 @@ export async function submitFaceEnrollment(frames: CapturedFrameInput[]) {
     throw new Error('Your face enrollment is already queued or processed.')
   }
 
-  const { data: enrollment, error: enrollmentError } = await supabase
-    .from('face_enrollments')
-    .upsert({
-      student_id: studentId,
-      state: 'uploading',
-      frame_count: 0,
-      failure_reason: null,
-    }, { onConflict: 'student_id' })
-    .select('id')
-    .single()
-  if (enrollmentError) throw enrollmentError
+  let enrollmentId: string | undefined
+  const uploadedPaths: string[] = []
 
-  const uploadedRows = []
-  for (const [index, frame] of frames.entries()) {
-    const storagePath = `${studentId}/${enrollment.id}/${Date.now()}-${index + 1}.jpg`
-    const { error: uploadError } = await supabase.storage
-      .from('face-frames')
-      .upload(storagePath, dataUrlToBlob(frame.dataUrl), {
-        contentType: 'image/jpeg',
-        upsert: false,
+  try {
+    if (existing) {
+      const { data: oldFrames, error: oldFramesError } = await supabase
+        .from('face_enrollment_frames')
+        .select('storage_path')
+        .eq('enrollment_id', existing.id)
+      if (oldFramesError) throw oldFramesError
+
+      const oldPaths = (oldFrames ?? []).map((frame) => frame.storage_path as string)
+      if (oldPaths.length) {
+        const { error: removeError } = await supabase.storage.from('face-frames').remove(oldPaths)
+        if (removeError) throw new Error(`Could not remove the previous face capture: ${removeError.message}`)
+      }
+
+      const { data: preparedId, error: prepareError } = await supabase.rpc('prepare_face_enrollment_replacement', {
+        p_enrollment_id: existing.id,
       })
-    if (uploadError) throw uploadError
-    uploadedRows.push({
-      enrollment_id: enrollment.id,
-      student_id: studentId,
-      storage_path: storagePath,
-      quality_score: null,
-      pose_label: frame.label,
-    })
+      if (prepareError) throw prepareError
+      enrollmentId = preparedId as string
+    } else {
+      const { data: enrollment, error: enrollmentError } = await supabase
+        .from('face_enrollments')
+        .insert({
+          student_id: studentId,
+          state: 'uploading',
+          frame_count: 0,
+          failure_reason: null,
+        })
+        .select('id')
+        .single()
+      if (enrollmentError) throw enrollmentError
+      enrollmentId = enrollment.id as string
+    }
+
+    const uploadedRows = []
+    for (const [index, frame] of frames.entries()) {
+      const storagePath = `${studentId}/${enrollmentId}/${Date.now()}-${index + 1}.jpg`
+      const { error: uploadError } = await supabase.storage
+        .from('face-frames')
+        .upload(storagePath, dataUrlToBlob(frame.dataUrl), {
+          contentType: 'image/jpeg',
+          upsert: false,
+        })
+      if (uploadError) throw uploadError
+      uploadedPaths.push(storagePath)
+      uploadedRows.push({
+        enrollment_id: enrollmentId,
+        student_id: studentId,
+        storage_path: storagePath,
+        quality_score: null,
+        pose_label: frame.label,
+      })
+    }
+
+    const { error: frameError } = await supabase.from('face_enrollment_frames').insert(uploadedRows)
+    if (frameError) throw frameError
+
+    const { error: updateError } = await supabase
+      .from('face_enrollments')
+      .update({ state: 'queued', frame_count: frames.length, failure_reason: null })
+      .eq('id', enrollmentId)
+    if (updateError) throw updateError
+
+    return { enrollmentId, frameCount: frames.length, state: 'queued' as const }
+  } catch (error) {
+    if (uploadedPaths.length) await supabase.storage.from('face-frames').remove(uploadedPaths)
+    if (enrollmentId) {
+      await supabase
+        .from('face_enrollments')
+        .update({ state: 'upload_failed', frame_count: 0, failure_reason: error instanceof Error ? error.message : 'Upload failed' })
+        .eq('id', enrollmentId)
+    }
+    throw error
   }
-
-  const { error: frameError } = await supabase.from('face_enrollment_frames').insert(uploadedRows)
-  if (frameError) throw frameError
-
-  const { error: updateError } = await supabase
-    .from('face_enrollments')
-    .update({ state: 'queued', frame_count: frames.length, failure_reason: null })
-    .eq('id', enrollment.id)
-  if (updateError) throw updateError
-
-  return { enrollmentId: enrollment.id as string, frameCount: frames.length, state: 'queued' as const }
 }
 
 export async function claimNextEnrollment(workerId: string) {

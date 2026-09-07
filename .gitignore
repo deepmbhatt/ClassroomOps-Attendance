@@ -12,3 +12,7 @@ playwright.config.d.ts
 .env
 .DS_Store
 
+
+# Local update packages
+classroomops-*-update/
+classroomops-*.tar.gz
