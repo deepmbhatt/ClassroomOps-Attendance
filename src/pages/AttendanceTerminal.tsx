@@ -4,9 +4,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Card, IconButton, OnlineGate, PageHeader, StatusPill } from '../components/Layout'
 import { closeLectureSession, createLectureSession, loadAppData, markAttendanceRecord } from '../lib/api'
-import { canInsertAttendance, confidenceLabel, recognitionThresholdForAttempt } from '../lib/attendance'
+import { canAcceptFaceConsensus, canAcceptFastFaceMatch, canInsertAttendance, confidenceLabel } from '../lib/attendance'
 import { attachCameraStream, listVideoInputs, requestCamera, stopCameraStream } from '../lib/camera'
 import { detectFaceRegions, preloadFaceDetector } from '../lib/faceDetection'
+import type { FaceRegion } from '../lib/faceDetection'
 import { averageEmbeddings, cosineSimilarity, createEmbeddingFromCanvas, isEmbeddingCompatible, preloadFaceEngine } from '../lib/faceEngine'
 import type { AppData } from '../lib/api'
 
@@ -14,6 +15,12 @@ const configuredThreshold = Number(import.meta.env.VITE_FACE_MATCH_THRESHOLD ?? 
 const configuredMargin = Number(import.meta.env.VITE_FACE_MATCH_MARGIN ?? 0.06)
 const recognitionThreshold = Number.isFinite(configuredThreshold) ? configuredThreshold : 0.58
 const recognitionMargin = Number.isFinite(configuredMargin) ? configuredMargin : 0.06
+
+type ScanFeedback = {
+  tone: 'idle' | 'checking' | 'success' | 'retry'
+  title: string
+  detail: string
+}
 
 let recognitionWarmupPromise: Promise<void> | null = null
 
@@ -38,7 +45,6 @@ export function AttendanceTerminal() {
   const currentLectureIdRef = useRef('')
   const latestDataRef = useRef<AppData | undefined>(data)
   const recentlyMarkedRef = useRef(new Set<string>())
-  const recognitionFailuresRef = useRef(0)
   const recognitionRetryAfterRef = useRef(0)
   const [courseId, setCourseId] = useState('')
   const [lectureId, setLectureId] = useState('')
@@ -50,6 +56,11 @@ export function AttendanceTerminal() {
   const [selectedDeviceId, setSelectedDeviceId] = useState('')
   const [mirrored, setMirrored] = useState(true)
   const [recognitionState, setRecognitionState] = useState<'idle' | 'loading' | 'ready'>('idle')
+  const [scanFeedback, setScanFeedback] = useState<ScanFeedback>({
+    tone: 'idle',
+    title: 'Ready for the next student',
+    detail: 'Attendance will be confirmed here.',
+  })
 
   const course = data?.courses.find((item) => item.id === courseId) ?? data?.courses.find((item) => item.active) ?? data?.courses[0]
   const activeLecture = data?.lectures.find((lecture) => lecture.id === lectureId)
@@ -144,7 +155,8 @@ export function AttendanceTerminal() {
       await Promise.all([ensureSession(), warmRecognition()])
       setRecognitionState('ready')
       scanningRef.current = true
-      setStatus('Scanning for faces')
+      setStatus('Automatic recognition active')
+      setScanFeedback({ tone: 'idle', title: 'Ready for the next student', detail: 'Stand in view and wait for approval.' })
       void scanLoop()
     } catch (nextError) {
       stopCamera('Camera could not start')
@@ -159,6 +171,7 @@ export function AttendanceTerminal() {
     if (videoRef.current) videoRef.current.srcObject = null
     setCameraRunning(false)
     setStatus(nextStatus)
+    setScanFeedback({ tone: 'idle', title: 'Scanner paused', detail: 'Start scanning when ready.' })
   }
 
   function captureCanvas(scale: number) {
@@ -175,13 +188,13 @@ export function AttendanceTerminal() {
 
   async function scanLoop() {
     while (scanningRef.current) {
-      await new Promise((resolve) => window.setTimeout(resolve, 650))
+      await new Promise((resolve) => window.setTimeout(resolve, 350))
       if (busyRef.current || !currentLectureIdRef.current || Date.now() < recognitionRetryAfterRef.current) continue
-      const probe = captureCanvas(0.28)
+      const probe = captureCanvas(0.32)
       if (!probe) continue
       try {
         const faces = await detectFaceRegions(probe)
-        if (faces.length === 1) await recognizeBurst()
+        if (faces.length === 1) await recognizeBurst(probe, faces[0])
 
       } catch (nextError) {
         scanningRef.current = false
@@ -191,20 +204,19 @@ export function AttendanceTerminal() {
     }
   }
 
-  function recordRecognitionFailure() {
-    const attempt = recognitionFailuresRef.current + 1
-    if (attempt >= 3) {
-      recognitionFailuresRef.current = 0
-      recognitionRetryAfterRef.current = Date.now() + 3500
-      setStatus('Face not verified. Ready for another scan.')
-      return
+  function scaleFaceRegion(region: FaceRegion, from: HTMLCanvasElement, to: HTMLCanvasElement): FaceRegion {
+    const scaleX = to.width / from.width
+    const scaleY = to.height / from.height
+    return {
+      x: region.x * scaleX,
+      y: region.y * scaleY,
+      width: region.width * scaleX,
+      height: region.height * scaleY,
+      confidence: region.confidence,
     }
-    recognitionFailuresRef.current = attempt
-    setStatus('Checking face again (' + (attempt + 1) + ' of 3)...')
   }
 
-  async function recognizeBurst() {
-    const attempt = Math.min(3, recognitionFailuresRef.current + 1)
+  async function recognizeBurst(probe: HTMLCanvasElement, detectedRegion: FaceRegion) {
     const latestData = latestDataRef.current
     const latestAllowedIds = new Set((latestData?.courseMemberships ?? [])
       .filter((item) => item.course_id === course?.id && !item.deleted_at)
@@ -224,88 +236,99 @@ export function AttendanceTerminal() {
 
     busyRef.current = true
     setError('')
-    setStatus(`Face detected. Verification attempt ${attempt} of 3...`)
+    setScanFeedback({ tone: 'checking', title: 'Verifying face', detail: 'Please wait for approval before moving.' })
 
     const vectors: number[][] = []
     const votes = new Map<string, number>()
+    let verifiedStudentId = ''
+    let verifiedScore = 0
+    let verifiedMargin = 0
+    let verifiedVotes = 0
 
     try {
       for (let index = 0; index < 3; index += 1) {
-        const canvas = captureCanvas(0.8)
+        const canvas = captureCanvas(0.68)
         if (!canvas) continue
-        const regions = await detectFaceRegions(canvas)
-        if (regions.length !== 1) {
-          await new Promise((resolve) => window.setTimeout(resolve, 140))
-          continue
-        }
-
-        const result = await createEmbeddingFromCanvas(canvas, 'cpu', regions[0], regions.length, 'attendance')
-        if (!result.quality.ok) {
-          await new Promise((resolve) => window.setTimeout(resolve, 140))
-          continue
-        }
-
+        const region = scaleFaceRegion(detectedRegion, probe, canvas)
+        const result = await createEmbeddingFromCanvas(canvas, 'cpu', region, 1, 'attendance')
         vectors.push(result.vector)
-        const frameBest = embeddings
+
+        const frameRanked = embeddings
           .map((embedding) => ({ studentId: embedding.student_id, score: cosineSimilarity(result.vector, embedding.vector) }))
-          .sort((left, right) => right.score - left.score)[0]
+          .sort((left, right) => right.score - left.score)
+        const frameBest = frameRanked[0]
+        const frameSecond = frameRanked.find((candidate) => candidate.studentId !== frameBest?.studentId)
         if (frameBest) votes.set(frameBest.studentId, (votes.get(frameBest.studentId) ?? 0) + 1)
-        await new Promise((resolve) => window.setTimeout(resolve, 140))
+        const frameMargin = frameBest ? frameBest.score - (frameSecond?.score ?? 0) : 0
+
+        if (frameBest && index === 0 && canAcceptFastFaceMatch(
+          frameBest.score,
+          frameMargin,
+          result.quality.ok,
+          recognitionThreshold,
+          recognitionMargin,
+        )) {
+          verifiedStudentId = frameBest.studentId
+          verifiedScore = frameBest.score
+          verifiedMargin = frameMargin
+          verifiedVotes = 1
+          break
+        }
+
+        if (vectors.length >= 2) {
+          const queryVector = averageEmbeddings(vectors)
+          const ranked = embeddings
+            .map((embedding) => ({ studentId: embedding.student_id, score: cosineSimilarity(queryVector, embedding.vector) }))
+            .sort((left, right) => right.score - left.score)
+          const best = ranked[0]
+          const second = ranked.find((candidate) => candidate.studentId !== best?.studentId)
+          const voteCount = best ? votes.get(best.studentId) ?? 0 : 0
+          const margin = best ? best.score - (second?.score ?? 0) : 0
+          if (best && canAcceptFaceConsensus(best.score, margin, voteCount, vectors.length, recognitionThreshold, recognitionMargin)) {
+            verifiedStudentId = best.studentId
+            verifiedScore = best.score
+            verifiedMargin = margin
+            verifiedVotes = voteCount
+            break
+          }
+        }
+
+        if (index < 2) await new Promise((resolve) => window.setTimeout(resolve, 70))
       }
 
-      if (vectors.length < 2) {
-        recordRecognitionFailure()
-        return
-      }
-
-      const queryVector = averageEmbeddings(vectors)
-      const ranked = embeddings
-        .map((embedding) => ({ embedding, score: cosineSimilarity(queryVector, embedding.vector) }))
-        .sort((left, right) => right.score - left.score)
-      const best = ranked[0]
-      const second = ranked.find((candidate) => candidate.embedding.student_id !== best?.embedding.student_id)
-      const voteCount = best ? votes.get(best.embedding.student_id) ?? 0 : 0
-      const margin = best ? best.score - (second?.score ?? 0) : 0
-      const attemptThreshold = recognitionThresholdForAttempt(recognitionThreshold, attempt)
-      const verified = Boolean(
-        best
-        && best.score >= attemptThreshold
-        && voteCount >= 2
-        && margin >= recognitionMargin
-      )
-
-      if (!verified || !best) {
-        recordRecognitionFailure()
+      if (!verifiedStudentId) {
+        recognitionRetryAfterRef.current = Date.now() + 1400
+        setScanFeedback({ tone: 'retry', title: 'Not verified yet', detail: 'Please wait. Retrying automatically.' })
         return
       }
 
       const lecture = currentLectureIdRef.current
-      const alreadyStored = !canInsertAttendance(latestData?.attendance ?? [], lecture, best.embedding.student_id)
-      if (alreadyStored || recentlyMarkedRef.current.has(best.embedding.student_id)) {
-        const profile = latestStudents.find((student) => student.id === best.embedding.student_id)
-        recognitionFailuresRef.current = 0
-        setStatus(`${profile?.full_name ?? 'Student'} is already marked present`)
+      const profile = latestStudents.find((student) => student.id === verifiedStudentId)
+      const studentName = profile?.full_name ?? 'Student'
+      const alreadyStored = !canInsertAttendance(latestData?.attendance ?? [], lecture, verifiedStudentId)
+      if (alreadyStored || recentlyMarkedRef.current.has(verifiedStudentId)) {
+        recognitionRetryAfterRef.current = Date.now() + 1800
+        setScanFeedback({ tone: 'success', title: studentName, detail: 'Already approved. Next student may proceed.' })
         return
       }
 
-      recognitionFailuresRef.current = 0
-      recognitionRetryAfterRef.current = 0
-      recentlyMarkedRef.current.add(best.embedding.student_id)
+      recognitionRetryAfterRef.current = Date.now() + 1800
+      recentlyMarkedRef.current.add(verifiedStudentId)
       await markAttendanceRecord({
         lectureId: lecture,
-        studentId: best.embedding.student_id,
+        studentId: verifiedStudentId,
         status: 'present',
-        confidence: Number(best.score.toFixed(4)),
+        confidence: Number(verifiedScore.toFixed(4)),
         source: 'face',
-        reason: `3-frame consensus (${voteCount}/${vectors.length}), attempt ${attempt}, margin ${margin.toFixed(3)}`,
+        reason: `Adaptive verification (${verifiedVotes}/${vectors.length} votes), margin ${verifiedMargin.toFixed(3)}`,
       })
-      const profile = latestStudents.find((student) => student.id === best.embedding.student_id)
-      setStatus(`Marked ${profile?.full_name ?? 'student'} present (${Math.round(best.score * 100)}%)`)
+      setScanFeedback({ tone: 'success', title: studentName, detail: `Approved. Attendance marked at ${Math.round(verifiedScore * 100)}%. Next student may proceed.` })
       await queryClient.invalidateQueries({ queryKey: ['app-data'] })
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Recognition failed.')
+      setScanFeedback({ tone: 'retry', title: 'Scanner needs attention', detail: 'Pause and restart scanning.' })
     } finally {
-      window.setTimeout(() => { busyRef.current = false }, 450)
+      window.setTimeout(() => { busyRef.current = false }, 140)
     }
   }
 
@@ -347,6 +370,10 @@ export function AttendanceTerminal() {
             </div>
             <div className="live-camera-stage">
               <video ref={videoRef} className={mirrored ? 'selfie-preview' : undefined} autoPlay playsInline muted />
+              {cameraRunning ? <div className={`scan-feedback ${scanFeedback.tone}`} aria-live="polite">
+                {scanFeedback.tone === 'success' ? <CheckCircle2 size={22} /> : <ScanFace size={22} />}
+                <div><strong>{scanFeedback.title}</strong><span>{scanFeedback.detail}</span></div>
+              </div> : null}
               {!cameraRunning ? <div className="camera-placeholder"><ScanFace size={42} /><strong>Camera is off</strong><span>Start scanning when the class is ready.</span></div> : null}
             </div>
             <div className="terminal-status">

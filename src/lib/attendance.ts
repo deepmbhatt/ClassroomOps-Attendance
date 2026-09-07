@@ -22,9 +22,25 @@ export function normalizeAttendanceStatus(value: string): AttendanceStatus {
   throw new Error(`Unsupported attendance status: ${value}`)
 }
 
-export function recognitionThresholdForAttempt(baseThreshold: number, attempt: number) {
-  const boundedAttempt = Math.min(3, Math.max(1, Math.trunc(attempt)))
-  return Math.max(0.54, baseThreshold - (boundedAttempt - 1) * 0.01)
+export function canAcceptFastFaceMatch(
+  score: number,
+  margin: number,
+  qualityOk: boolean,
+  threshold: number,
+  minimumMargin: number,
+) {
+  return qualityOk && score >= threshold + 0.07 && margin >= minimumMargin + 0.04
+}
+
+export function canAcceptFaceConsensus(
+  score: number,
+  margin: number,
+  votes: number,
+  frameCount: number,
+  threshold: number,
+  minimumMargin: number,
+) {
+  return frameCount >= 2 && votes >= 2 && score >= threshold && margin >= minimumMargin
 }
 
 export function confidenceLabel(confidence?: number) {

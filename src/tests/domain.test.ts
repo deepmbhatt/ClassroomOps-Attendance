@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { canInsertAttendance, ensureOnlineForAttendance, normalizeAttendanceStatus, recognitionThresholdForAttempt } from '../lib/attendance'
+import { canAcceptFaceConsensus, canAcceptFastFaceMatch, canInsertAttendance, ensureOnlineForAttendance, normalizeAttendanceStatus } from '../lib/attendance'
 import { attendanceTone, effectiveAttendanceStatus, localDateKey } from '../lib/attendanceView'
 import { cameraErrorMessage } from '../lib/camera'
 import { canTransitionEnrollment, isEnrollmentLocked } from '../lib/enrollmentState'
@@ -101,10 +101,10 @@ describe('low-quality attendance tolerance', () => {
     expect(faceQualityLimits.attendance.minimumScore).toBeLessThan(faceQualityLimits.strict.minimumScore)
   })
 
-  it('relaxes matching only slightly across three attempts and never below the floor', () => {
-    expect(recognitionThresholdForAttempt(0.58, 1)).toBeCloseTo(0.58)
-    expect(recognitionThresholdForAttempt(0.58, 2)).toBeCloseTo(0.57)
-    expect(recognitionThresholdForAttempt(0.58, 3)).toBeCloseTo(0.56)
-    expect(recognitionThresholdForAttempt(0.50, 3)).toBeCloseTo(0.54)
+  it('accepts a clear face quickly and requires agreement for borderline matches', () => {
+    expect(canAcceptFastFaceMatch(0.67, 0.11, true, 0.58, 0.06)).toBe(true)
+    expect(canAcceptFastFaceMatch(0.67, 0.11, false, 0.58, 0.06)).toBe(false)
+    expect(canAcceptFaceConsensus(0.59, 0.07, 2, 2, 0.58, 0.06)).toBe(true)
+    expect(canAcceptFaceConsensus(0.59, 0.07, 1, 2, 0.58, 0.06)).toBe(false)
   })
 })
