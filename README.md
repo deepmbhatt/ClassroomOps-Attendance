@@ -103,6 +103,7 @@ VITE_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
 VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
 VITE_DEV_AUTH_BYPASS=false
 VITE_FACE_EMBEDDING_MODEL=/models/face-embedding.onnx
+VITE_FACE_MODEL_VERSION=arcface-model-v1
 VITE_FACE_MATCH_THRESHOLD=0.58
 VITE_FACE_MATCH_MARGIN=0.06
 ```
@@ -142,6 +143,7 @@ VITE_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
 VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
 VITE_DEV_AUTH_BYPASS=false
 VITE_FACE_EMBEDDING_MODEL=/models/face-embedding.onnx
+VITE_FACE_MODEL_VERSION=arcface-model-v1
 VITE_FACE_MATCH_THRESHOLD=0.58
 VITE_FACE_MATCH_MARGIN=0.06
 ```
@@ -239,12 +241,12 @@ supabase/migrations/202608180004_face_enrollment_upload_flow.sql
 
 ## ONNX Face Model
 
-Biometric processing requires a real ArcFace-compatible 112x112 ONNX model at `public/models/face-embedding.onnx` (or another URL set in `VITE_FACE_EMBEDDING_MODEL`). The app validates the response and stops before writing embeddings when the model is missing or invalid.
+Biometric processing requires an ArcFace-compatible 112x112 ONNX recognition model at `public/models/face-embedding.onnx` (or another URL set in `VITE_FACE_EMBEDDING_MODEL`). Set `VITE_FACE_MODEL_VERSION` to a unique revision and change it whenever the ONNX bytes change. The browser pipeline uses MediaPipe eye landmarks for roll/scale alignment and stores an average plus each enrollment view as a compact multi-template. After a model or pipeline change, use **Reprocess incompatible** in the admin biometric queue before starting live attendance.
 
 
 ## Live Attendance Terminal
 
-The admin attendance terminal uses the classroom/admin camera only. Set the course, title, and date/time, then start the camera. The page performs a lightweight continuous face check, verifies three clear frames using vote consensus and a second-best margin, compares only compatible active embeddings, and writes one attendance record per student per lecture.
+The admin attendance terminal uses the classroom/admin camera only. It selects the largest central face when background faces are visible, reuses its aligned crop, and runs adaptive verification: exceptionally strong matches can finish after one frame, normal matches require two agreeing frames, and a third frame is used only for borderline cases. Matching compares the live embedding against every stored enrollment template and still requires both an identity threshold and separation from the second-best student.
 
 Manual controls are available beside the camera: select a student and click `Present`, `Absent`, `Late`, or `Excused`. Keyboard shortcuts work after selecting a student: `P` marks present and `A` marks absent. CSV import supports past/manual corrections with:
 

@@ -1,9 +1,16 @@
+export interface FacePoint {
+  x: number
+  y: number
+}
+
 export interface FaceRegion {
   x: number
   y: number
   width: number
   height: number
   confidence: number
+  leftEye?: FacePoint
+  rightEye?: FacePoint
 }
 
 type NativeDetection = { boundingBox?: { x: number; y: number; width: number; height: number } }
@@ -54,6 +61,24 @@ export async function preloadFaceDetector() {
   return 'MediaPipe face detector'
 }
 
+export function selectPrimaryFace(regions: FaceRegion[], width: number, height: number) {
+  if (!regions.length || width <= 0 || height <= 0) return undefined
+  const centerX = width / 2
+  const centerY = height / 2
+  return [...regions].sort((left, right) => {
+    const score = (region: FaceRegion) => {
+      const area = Math.max(0, region.width * region.height)
+      const regionCenterX = region.x + region.width / 2
+      const regionCenterY = region.y + region.height / 2
+      const distance = Math.hypot((regionCenterX - centerX) / width, (regionCenterY - centerY) / height)
+      const centerWeight = 1.25 - Math.min(1, distance) * 0.35
+      const confidenceWeight = 0.85 + Math.max(0, Math.min(1, region.confidence)) * 0.15
+      return area * centerWeight * confidenceWeight
+    }
+    return score(right) - score(left)
+  })[0]
+}
+
 export async function detectFaceRegions(source: HTMLCanvasElement): Promise<FaceRegion[]> {
   const native = getNativeDetector()
   if (native) {
@@ -75,12 +100,16 @@ export async function detectFaceRegions(source: HTMLCanvasElement): Promise<Face
   return detector.detect(source).detections.flatMap((detection) => {
     const box = detection.boundingBox
     if (!box) return []
+    const rightEye = detection.keypoints[0]
+    const leftEye = detection.keypoints[1]
     return [{
       x: box.originX,
       y: box.originY,
       width: box.width,
       height: box.height,
       confidence: detection.categories[0]?.score ?? 0,
+      leftEye: leftEye ? { x: leftEye.x * source.width, y: leftEye.y * source.height } : undefined,
+      rightEye: rightEye ? { x: rightEye.x * source.width, y: rightEye.y * source.height } : undefined,
     }]
   })
 }

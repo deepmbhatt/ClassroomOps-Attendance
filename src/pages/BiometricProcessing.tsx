@@ -10,9 +10,9 @@ import {
   loadAppData,
   loadEnrollmentFrames,
 } from '../lib/api'
-import { detectFaceRegions, preloadFaceDetector } from '../lib/faceDetection'
+import { detectFaceRegions, preloadFaceDetector, selectPrimaryFace } from '../lib/faceDetection'
 import type { ComputeMode } from '../lib/faceEngine'
-import { createEmbeddingFromCanvas, currentModelVersion, currentPipelineVersion, getAvailableComputeModes, isEmbeddingCompatible, preloadFaceEngine } from '../lib/faceEngine'
+import { buildEmbeddingTemplate, createEmbeddingFromCanvas, currentModelVersion, currentPipelineVersion, getAvailableComputeModes, isEmbeddingCompatible, preloadFaceEngine } from '../lib/faceEngine'
 
 type ClaimedJob = Awaited<ReturnType<typeof claimNextEnrollment>>
 
@@ -55,19 +55,12 @@ export function BiometricProcessing() {
     return canvas
   }
 
-  function averageVectors(vectors: number[][]) {
-    const length = Math.min(...vectors.map((vector) => vector.length))
-    const averaged = Array.from({ length }, (_, index) => vectors.reduce((sum, vector) => sum + vector[index], 0) / vectors.length)
-    const norm = Math.sqrt(averaged.reduce((sum, value) => sum + value * value, 0)) || 1
-    return averaged.map((value) => value / norm)
-  }
-
   async function processClaimedJob(job: ClaimedJob) {
     if (!job?.id || !job.student_id) return false
     setClaimed(job.id)
     const frames = await loadEnrollmentFrames(job.id)
-    if (frames.length < 3) {
-      await failEnrollmentProcessing(job.id, 'At least three submitted frames are required.')
+    if (frames.length < 2) {
+      await failEnrollmentProcessing(job.id, 'At least two submitted frames are required.')
       return false
     }
 
@@ -81,22 +74,24 @@ export function BiometricProcessing() {
     for (const frame of frames) {
       const canvas = await blobToCanvas(await downloadFaceFrame(frame.storage_path))
       const regions = await detectFaceRegions(canvas)
-      const result = await createEmbeddingFromCanvas(canvas, mode, regions[0], regions.length)
+      const primaryFace = selectPrimaryFace(regions, canvas.width, canvas.height)
+      const result = await createEmbeddingFromCanvas(canvas, mode, primaryFace, primaryFace ? 1 : 0)
       modelVersion = result.modelVersion
       pipelineVersion = result.pipelineVersion
-      if (!result.quality.ok) qualityMessages.push(...result.quality.messages)
-      embeddings.push(result.vector)
+      if (result.quality.ok) embeddings.push(result.vector)
+      else qualityMessages.push(...result.quality.messages)
     }
 
-    if (qualityMessages.length) {
-      await failEnrollmentProcessing(job.id, Array.from(new Set(qualityMessages)).join(', '))
+    if (embeddings.length < 2) {
+      const details = Array.from(new Set(qualityMessages)).join(', ')
+      await failEnrollmentProcessing(job.id, `At least two usable face frames are required.${details ? ` ${details}` : ''}`)
       return false
     }
 
     await completeEnrollmentProcessing({
       enrollmentId: job.id,
       studentId: job.student_id,
-      embedding: averageVectors(embeddings),
+      embedding: buildEmbeddingTemplate(embeddings),
       modelVersion,
       pipelineVersion,
       sourceFrameIds: frames.map((frame) => frame.id),
@@ -131,6 +126,28 @@ export function BiometricProcessing() {
       await queryClient.invalidateQueries({ queryKey: ['app-data'] })
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not reprocess enrollment')
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  async function reprocessIncompatible() {
+    const incompatible = readyJobs.filter((item) => !compatibleStudents.has(item.student_id))
+    if (!incompatible.length) return
+    setProcessing(true)
+    let processed = 0
+    let failed = 0
+    try {
+      for (const job of incompatible) {
+        setMessage(`Reprocessing ${processed + failed + 1} of ${incompatible.length} enrollments...`)
+        const ok = await processClaimedJob(job)
+        if (ok) processed += 1
+        else failed += 1
+      }
+      setMessage(`Reprocessing finished. ${processed} ready, ${failed} failed.`)
+      await queryClient.invalidateQueries({ queryKey: ['app-data'] })
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not reprocess incompatible enrollments')
     } finally {
       setProcessing(false)
     }
@@ -190,9 +207,13 @@ export function BiometricProcessing() {
             <Wand2 size={16} />
             Process all queued
           </IconButton>
+          <IconButton disabled={!needsReprocessing || processing} title="Regenerate every older embedding with the current model and alignment pipeline" onClick={() => void reprocessIncompatible()}>
+            <RotateCcw size={16} />
+            Reprocess incompatible
+          </IconButton>
         </div>
         {message ? <p className="notice">{message}</p> : null}
-        {needsReprocessing ? <p className="notice warning"><b>{needsReprocessing}</b> ready enrollment{needsReprocessing === 1 ? '' : 's'} use an older face pipeline. Reprocess each listed ready row before live recognition.</p> : null}
+        {needsReprocessing ? <p className="notice warning"><b>{needsReprocessing}</b> ready enrollment{needsReprocessing === 1 ? '' : 's'} use an older face pipeline. Use Reprocess incompatible before live recognition.</p> : null}
         {(data?.enrollments ?? []).length ? <div className="table-scroll"><table>
           <thead><tr><th>Student</th><th>Frames</th><th>State</th><th>Lock</th><th>Validation</th><th>Action</th></tr></thead>
           <tbody>

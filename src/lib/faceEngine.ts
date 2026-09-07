@@ -20,9 +20,10 @@ export interface EmbeddingResult {
 }
 
 const modelPath = import.meta.env.VITE_FACE_EMBEDDING_MODEL as string | undefined
+const configuredModelVersion = (import.meta.env.VITE_FACE_MODEL_VERSION as string | undefined)?.trim()
 const normalization = (import.meta.env.VITE_FACE_INPUT_NORMALIZATION as string | undefined) === 'zero-one' ? 'zero-one' : 'arcface'
-export const currentPipelineVersion = `browser-face-v3-${normalization}-detected-crop`
-export const currentModelVersion = modelPath ? `onnx:${modelPath.split('/').pop()}` : 'model-not-configured'
+export const currentPipelineVersion = `browser-face-v4-${normalization}-eye-aligned-multi-template`
+export const currentModelVersion = configuredModelVersion || (modelPath ? `onnx:${modelPath.split('/').pop()}` : 'model-not-configured')
 
 let modelBytesPromise: Promise<ArrayBuffer> | null = null
 const sessionPromises = new Map<'wasm' | 'webgpu', Promise<InferenceSession>>()
@@ -201,33 +202,55 @@ function paddedSquare(region: FaceRegion, maxWidth: number, maxHeight: number) {
   }
 }
 
-export function cropFaceCanvas(canvas: HTMLCanvasElement, region: FaceRegion, outputSize = 384) {
-  const crop = paddedSquare(region, canvas.width, canvas.height)
+function renderNormalizedFace(canvas: HTMLCanvasElement, region: FaceRegion | undefined, outputSize: number) {
   const output = document.createElement('canvas')
   output.width = outputSize
   output.height = outputSize
-  const context = output.getContext('2d')
+  const context = output.getContext('2d', { willReadFrequently: true })
   if (!context) throw new Error('Canvas is unavailable')
   context.imageSmoothingEnabled = true
   context.imageSmoothingQuality = 'high'
-  context.drawImage(canvas, crop.x, crop.y, crop.size, crop.size, 0, 0, outputSize, outputSize)
-  return output
-}
+  context.fillStyle = '#7f7f7f'
+  context.fillRect(0, 0, outputSize, outputSize)
 
-async function canvasToTensor(canvas: HTMLCanvasElement, region?: FaceRegion): Promise<OrtTensor> {
-  const ort = await getOrt()
-  const size = 112
-  const work = document.createElement('canvas')
-  work.width = size
-  work.height = size
-  const context = work.getContext('2d', { willReadFrequently: true })
-  if (!context) throw new Error('Canvas is unavailable')
+  if (region?.leftEye && region.rightEye) {
+    const first = region.leftEye.x <= region.rightEye.x ? region.leftEye : region.rightEye
+    const second = first === region.leftEye ? region.rightEye : region.leftEye
+    const deltaX = second.x - first.x
+    const deltaY = second.y - first.y
+    const eyeDistance = Math.hypot(deltaX, deltaY)
+    if (eyeDistance >= Math.max(8, region.width * 0.12)) {
+      const midpointX = (first.x + second.x) / 2
+      const midpointY = (first.y + second.y) / 2
+      const scale = (outputSize * 0.32) / eyeDistance
+      context.translate(outputSize / 2, outputSize * 0.43)
+      context.rotate(-Math.atan2(deltaY, deltaX))
+      context.scale(scale, scale)
+      context.translate(-midpointX, -midpointY)
+      context.drawImage(canvas, 0, 0)
+      return output
+    }
+  }
+
   const crop = region ? paddedSquare(region, canvas.width, canvas.height) : {
     x: Math.max(0, (canvas.width - Math.min(canvas.width, canvas.height)) / 2),
     y: Math.max(0, (canvas.height - Math.min(canvas.width, canvas.height)) / 2),
     size: Math.min(canvas.width, canvas.height),
   }
-  context.drawImage(canvas, crop.x, crop.y, crop.size, crop.size, 0, 0, size, size)
+  context.drawImage(canvas, crop.x, crop.y, crop.size, crop.size, 0, 0, outputSize, outputSize)
+  return output
+}
+
+export function cropFaceCanvas(canvas: HTMLCanvasElement, region: FaceRegion, outputSize = 384) {
+  return renderNormalizedFace(canvas, region, outputSize)
+}
+
+async function canvasToTensor(canvas: HTMLCanvasElement, region?: FaceRegion): Promise<OrtTensor> {
+  const ort = await getOrt()
+  const size = 112
+  const work = renderNormalizedFace(canvas, region, size)
+  const context = work.getContext('2d', { willReadFrequently: true })
+  if (!context) throw new Error('Canvas is unavailable')
   const pixels = context.getImageData(0, 0, size, size).data
   const data = new Float32Array(3 * size * size)
   for (let index = 0; index < size * size; index += 1) {
@@ -246,6 +269,34 @@ export function averageEmbeddings(vectors: number[][]) {
   const length = Math.min(...vectors.map((vector) => vector.length))
   const averaged = Array.from({ length }, (_, index) => vectors.reduce((sum, vector) => sum + vector[index], 0) / vectors.length)
   return normalize(averaged)
+}
+
+const embeddingTemplateMarker = -8142026
+
+export function buildEmbeddingTemplate(vectors: number[][]) {
+  const usable = vectors.filter((vector) => vector.length)
+  if (!usable.length) return []
+  const dimension = Math.min(...usable.map((vector) => vector.length))
+  const normalized = usable.map((vector) => normalize(vector.slice(0, dimension)))
+  const templates = [averageEmbeddings(normalized), ...normalized]
+  return [embeddingTemplateMarker, dimension, templates.length, ...templates.flat()]
+}
+
+export function templateSimilarity(query: number[], template: number[]) {
+  if (!query.length || !template.length) return 0
+  if (template[0] !== embeddingTemplateMarker) {
+    return template.length === query.length ? cosineSimilarity(query, template) : 0
+  }
+
+  const dimension = Math.trunc(template[1])
+  const count = Math.trunc(template[2])
+  if (dimension !== query.length || count < 1 || template.length !== 3 + dimension * count) return 0
+  let best = -1
+  for (let index = 0; index < count; index += 1) {
+    const offset = 3 + index * dimension
+    best = Math.max(best, cosineSimilarity(query, template.slice(offset, offset + dimension)))
+  }
+  return best
 }
 
 function normalize(vector: number[]) {

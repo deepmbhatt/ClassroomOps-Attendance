@@ -2,9 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { canAcceptFaceConsensus, canAcceptFastFaceMatch, canInsertAttendance, ensureOnlineForAttendance, normalizeAttendanceStatus } from '../lib/attendance'
 import { attendanceTone, effectiveAttendanceStatus, localDateKey } from '../lib/attendanceView'
 import { cameraErrorMessage } from '../lib/camera'
+import { selectPrimaryFace } from '../lib/faceDetection'
 import { canTransitionEnrollment, isEnrollmentLocked } from '../lib/enrollmentState'
 import { previewImport } from '../lib/importValidation'
-import { averageEmbeddings, cosineSimilarity, faceQualityLimits } from '../lib/faceEngine'
+import { averageEmbeddings, buildEmbeddingTemplate, cosineSimilarity, faceQualityLimits, templateSimilarity } from '../lib/faceEngine'
 
 describe('enrollment state machine', () => {
   it('allows the intended happy path and rejects unsafe duplicate processing paths', () => {
@@ -53,12 +54,31 @@ CSE404,hello`,
   })
 })
 
+describe('face selection', () => {
+  it('selects the large central face without rejecting background faces', () => {
+    const primary = selectPrimaryFace([
+      { x: 10, y: 10, width: 45, height: 45, confidence: 0.95 },
+      { x: 220, y: 100, width: 160, height: 160, confidence: 0.82 },
+      { x: 500, y: 50, width: 70, height: 70, confidence: 0.9 },
+    ], 640, 480)
+    expect(primary).toMatchObject({ x: 220, y: 100, width: 160, height: 160 })
+  })
+})
+
 describe('face embedding decisions', () => {
   it('normalizes averaged vectors and rejects incompatible dimensions', () => {
     const averaged = averageEmbeddings([[1, 0], [0.8, 0.2]])
     expect(Math.hypot(...averaged)).toBeCloseTo(1, 6)
     expect(cosineSimilarity(averaged, averaged)).toBeCloseTo(1, 6)
     expect(cosineSimilarity([1, 0], [1, 0, 0])).toBe(0)
+  })
+
+  it('keeps multiple enrollment views and matches the closest device or pose template', () => {
+    const template = buildEmbeddingTemplate([[1, 0], [0, 1]])
+    expect(template).toHaveLength(9)
+    expect(templateSimilarity([1, 0], template)).toBeCloseTo(1, 6)
+    expect(templateSimilarity([0, 1], template)).toBeCloseTo(1, 6)
+    expect(templateSimilarity([1, 0, 0], template)).toBe(0)
   })
 })
 
@@ -106,5 +126,7 @@ describe('low-quality attendance tolerance', () => {
     expect(canAcceptFastFaceMatch(0.67, 0.11, false, 0.58, 0.06)).toBe(false)
     expect(canAcceptFaceConsensus(0.59, 0.07, 2, 2, 0.58, 0.06)).toBe(true)
     expect(canAcceptFaceConsensus(0.59, 0.07, 1, 2, 0.58, 0.06)).toBe(false)
+    expect(canAcceptFaceConsensus(0.55, 0.09, 3, 3, 0.58, 0.06)).toBe(true)
+    expect(canAcceptFaceConsensus(0.55, 0.07, 3, 3, 0.58, 0.06)).toBe(false)
   })
 })

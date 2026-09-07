@@ -6,9 +6,9 @@ import { Card, IconButton, OnlineGate, PageHeader, StatusPill } from '../compone
 import { closeLectureSession, createLectureSession, loadAppData, markAttendanceRecord } from '../lib/api'
 import { canAcceptFaceConsensus, canAcceptFastFaceMatch, canInsertAttendance, confidenceLabel } from '../lib/attendance'
 import { attachCameraStream, listVideoInputs, requestCamera, stopCameraStream } from '../lib/camera'
-import { detectFaceRegions, preloadFaceDetector } from '../lib/faceDetection'
+import { detectFaceRegions, preloadFaceDetector, selectPrimaryFace } from '../lib/faceDetection'
 import type { FaceRegion } from '../lib/faceDetection'
-import { averageEmbeddings, cosineSimilarity, createEmbeddingFromCanvas, isEmbeddingCompatible, preloadFaceEngine } from '../lib/faceEngine'
+import { averageEmbeddings, createEmbeddingFromCanvas, isEmbeddingCompatible, preloadFaceEngine, templateSimilarity } from '../lib/faceEngine'
 import type { AppData } from '../lib/api'
 
 const configuredThreshold = Number(import.meta.env.VITE_FACE_MATCH_THRESHOLD ?? 0.58)
@@ -194,7 +194,8 @@ export function AttendanceTerminal() {
       if (!probe) continue
       try {
         const faces = await detectFaceRegions(probe)
-        if (faces.length === 1) await recognizeBurst(probe, faces[0])
+        const primaryFace = selectPrimaryFace(faces, probe.width, probe.height)
+        if (primaryFace) await recognizeBurst(probe, primaryFace)
 
       } catch (nextError) {
         scanningRef.current = false
@@ -213,6 +214,8 @@ export function AttendanceTerminal() {
       width: region.width * scaleX,
       height: region.height * scaleY,
       confidence: region.confidence,
+      leftEye: region.leftEye ? { x: region.leftEye.x * scaleX, y: region.leftEye.y * scaleY } : undefined,
+      rightEye: region.rightEye ? { x: region.rightEye.x * scaleX, y: region.rightEye.y * scaleY } : undefined,
     }
   }
 
@@ -254,7 +257,7 @@ export function AttendanceTerminal() {
         vectors.push(result.vector)
 
         const frameRanked = embeddings
-          .map((embedding) => ({ studentId: embedding.student_id, score: cosineSimilarity(result.vector, embedding.vector) }))
+          .map((embedding) => ({ studentId: embedding.student_id, score: templateSimilarity(result.vector, embedding.vector) }))
           .sort((left, right) => right.score - left.score)
         const frameBest = frameRanked[0]
         const frameSecond = frameRanked.find((candidate) => candidate.studentId !== frameBest?.studentId)
@@ -278,7 +281,7 @@ export function AttendanceTerminal() {
         if (vectors.length >= 2) {
           const queryVector = averageEmbeddings(vectors)
           const ranked = embeddings
-            .map((embedding) => ({ studentId: embedding.student_id, score: cosineSimilarity(queryVector, embedding.vector) }))
+            .map((embedding) => ({ studentId: embedding.student_id, score: templateSimilarity(queryVector, embedding.vector) }))
             .sort((left, right) => right.score - left.score)
           const best = ranked[0]
           const second = ranked.find((candidate) => candidate.studentId !== best?.studentId)

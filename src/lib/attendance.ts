@@ -40,7 +40,12 @@ export function canAcceptFaceConsensus(
   threshold: number,
   minimumMargin: number,
 ) {
-  return frameCount >= 2 && votes >= 2 && score >= threshold && margin >= minimumMargin
+  const normalConsensus = frameCount >= 2 && votes >= 2 && score >= threshold && margin >= minimumMargin
+  const unanimousLowQualityConsensus = frameCount >= 3
+    && votes === frameCount
+    && score >= Math.max(0.52, threshold - 0.04)
+    && margin >= minimumMargin + 0.02
+  return normalConsensus || unanimousLowQualityConsensus
 }
 
 export function confidenceLabel(confidence?: number) {

@@ -1,7 +1,7 @@
 import { Camera, Check, RefreshCw, RotateCcw, ShieldAlert, Video } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { attachCameraStream, listVideoInputs, requestCamera, stopCameraStream } from '../lib/camera'
-import { detectFaceRegions, preloadFaceDetector } from '../lib/faceDetection'
+import { detectFaceRegions, preloadFaceDetector, selectPrimaryFace } from '../lib/faceDetection'
 import { cropFaceCanvas } from '../lib/faceEngine'
 import { Card, IconButton, StatusPill } from './Layout'
 
@@ -108,11 +108,12 @@ export function CameraCapture({
     context.drawImage(video, 0, 0, canvas.width, canvas.height)
     try {
       const regions = await detectFaceRegions(canvas)
-      if (regions.length !== 1) {
-        setCaptureMessage(regions.length > 1 ? 'Only one face can be captured.' : 'Face not found yet. Hold steady and capture again.')
+      const primaryFace = selectPrimaryFace(regions, canvas.width, canvas.height)
+      if (!primaryFace) {
+        setCaptureMessage('Face not found yet. Hold steady and capture again.')
         return
       }
-      const cropped = cropFaceCanvas(canvas, regions[0])
+      const cropped = cropFaceCanvas(canvas, primaryFace)
       setFrames((current) => [...current, {
         id: crypto.randomUUID(),
         dataUrl: cropped.toDataURL('image/jpeg', 0.88),
@@ -120,7 +121,7 @@ export function CameraCapture({
         width: cropped.width,
         height: cropped.height,
       }])
-      setCaptureMessage('Face cropped automatically.')
+      setCaptureMessage(regions.length > 1 ? 'Primary face selected and cropped automatically.' : 'Face cropped automatically.')
     } catch {
       setCaptureMessage('Face check is still loading. Hold steady and try capture again.')
     } finally {
