@@ -142,4 +142,10 @@ describe('low-quality attendance tolerance', () => {
     expect(canAcceptFaceConsensus(0.55, 0.09, 3, 3, 0.58, 0.06)).toBe(true)
     expect(canAcceptFaceConsensus(0.55, 0.07, 3, 3, 0.58, 0.06)).toBe(false)
   })
+
+  it('supports calibrated SFace scores without bypassing consensus', () => {
+    expect(canAcceptFaceConsensus(0.38, 0.05, 2, 2, 0.363, 0.04)).toBe(true)
+    expect(canAcceptFaceConsensus(0.35, 0.05, 2, 2, 0.363, 0.04)).toBe(false)
+    expect(canAcceptFaceConsensus(0.35, 0.06, 3, 3, 0.363, 0.04)).toBe(true)
+  })
 })

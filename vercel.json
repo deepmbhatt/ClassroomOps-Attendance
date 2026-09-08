@@ -1,11 +1,14 @@
 {
-  "headers": [
+  "routes": [
     {
-      "source": "/models/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
-    }
-  ],
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+      "src": "/models/(.*)",
+      "dest": "/models/$1",
+      "headers": {
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "Content-Type": "application/octet-stream"
+      }
+    },
+    { "handle": "filesystem" },
+    { "src": "/.*", "dest": "/index.html" }
   ]
 }

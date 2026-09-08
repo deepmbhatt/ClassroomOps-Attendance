@@ -6,13 +6,13 @@ import { Card, IconButton, OnlineGate, PageHeader, StatusPill } from '../compone
 import { closeLectureSession, createLectureSession, loadAppData, markAttendanceRecord } from '../lib/api'
 import { canAcceptFaceConsensus, canAcceptFastFaceMatch, canInsertAttendance, confidenceLabel } from '../lib/attendance'
 import { attachCameraStream, listVideoInputs, requestCamera, stopCameraStream } from '../lib/camera'
-import { detectFaceRegions, preloadFaceDetector, selectPrimaryFace } from '../lib/faceDetection'
-import { createEmbeddingFromCanvas, isEmbeddingCompatible, preloadFaceEngine, templateSimilarity } from '../lib/faceEngine'
+import { detectFaceRegions, preloadFaceDetector, refineFaceRegionLandmarks, selectPrimaryFace } from '../lib/faceDetection'
+import { createEmbeddingFromCanvas, isEmbeddingCompatible, preloadFaceEngine, recommendedFaceMatchThreshold, templateSimilarity } from '../lib/faceEngine'
 import type { AppData } from '../lib/api'
 
-const configuredThreshold = Number(import.meta.env.VITE_FACE_MATCH_THRESHOLD ?? 0.5)
+const configuredThreshold = Number(import.meta.env.VITE_FACE_MATCH_THRESHOLD ?? recommendedFaceMatchThreshold)
 const configuredMargin = Number(import.meta.env.VITE_FACE_MATCH_MARGIN ?? 0.04)
-const recognitionThreshold = Number.isFinite(configuredThreshold) ? Math.min(0.7, Math.max(0.42, configuredThreshold)) : 0.5
+const recognitionThreshold = Number.isFinite(configuredThreshold) ? Math.min(0.7, Math.max(0.25, configuredThreshold)) : recommendedFaceMatchThreshold
 const recognitionMargin = Number.isFinite(configuredMargin) ? Math.min(0.15, Math.max(0.02, configuredMargin)) : 0.04
 
 type ScanFeedback = {
@@ -242,7 +242,8 @@ export function AttendanceTerminal() {
         const currentRegions = await detectFaceRegions(canvas)
         const currentRegion = selectPrimaryFace(currentRegions, canvas.width, canvas.height)
         if (!currentRegion) continue
-        const result = await createEmbeddingFromCanvas(canvas, 'auto', currentRegion, 1, 'attendance')
+        const refinedRegion = await refineFaceRegionLandmarks(canvas, currentRegion)
+        const result = await createEmbeddingFromCanvas(canvas, 'auto', refinedRegion, 1, 'attendance')
         vectors.push(result.vector)
 
         const frameRanked = embeddings

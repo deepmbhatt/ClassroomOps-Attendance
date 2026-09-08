@@ -102,9 +102,11 @@ Set:
 VITE_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
 VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
 VITE_DEV_AUTH_BYPASS=false
-VITE_FACE_EMBEDDING_MODEL=/models/face-embedding.onnx
-VITE_FACE_MODEL_VERSION=arcface-model-v1
-VITE_FACE_MATCH_THRESHOLD=0.50
+VITE_FACE_EMBEDDING_MODEL=/models/face-recognition-sface-2021dec.onnx
+VITE_FACE_MODEL_VERSION=opencv-sface-2021dec-v1
+VITE_FACE_MODEL_FAMILY=sface
+VITE_FACE_LANDMARKER_MODEL=https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task
+VITE_FACE_MATCH_THRESHOLD=0.363
 VITE_FACE_MATCH_MARGIN=0.04
 ```
 
@@ -142,9 +144,11 @@ If your GitHub repo root is already `classroom-attendance-platform`, leave Root 
 VITE_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
 VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
 VITE_DEV_AUTH_BYPASS=false
-VITE_FACE_EMBEDDING_MODEL=/models/face-embedding.onnx
-VITE_FACE_MODEL_VERSION=arcface-model-v1
-VITE_FACE_MATCH_THRESHOLD=0.50
+VITE_FACE_EMBEDDING_MODEL=/models/face-recognition-sface-2021dec.onnx
+VITE_FACE_MODEL_VERSION=opencv-sface-2021dec-v1
+VITE_FACE_MODEL_FAMILY=sface
+VITE_FACE_LANDMARKER_MODEL=https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task
+VITE_FACE_MATCH_THRESHOLD=0.363
 VITE_FACE_MATCH_MARGIN=0.04
 ```
 
@@ -241,8 +245,17 @@ supabase/migrations/202608180004_face_enrollment_upload_flow.sql
 
 ## ONNX Face Model
 
-Biometric processing requires an ArcFace-compatible 112x112 ONNX recognition model at `public/models/face-embedding.onnx` (or another URL set in `VITE_FACE_EMBEDDING_MODEL`). Set `VITE_FACE_MODEL_VERSION` to a unique revision and change it whenever the ONNX bytes change. The browser pipeline uses one canonical MediaPipe eye-and-nose ArcFace alignment and stores an average plus each enrollment view as a compact multi-template. After a model or pipeline change, use **Reprocess incompatible** in the admin biometric queue before starting live attendance.
+The recommended recognition model is OpenCV SFace at `public/models/face-recognition-sface-2021dec.onnx`. The app sets `VITE_FACE_MODEL_FAMILY=sface`, uses SFace's exact raw-RGB 112x112 input contract, and refines each captured face to the canonical five-point eye/nose/mouth alignment. The lightweight detector remains active for idle camera polling; detailed landmarks run only when creating an embedding.
 
+Download the official model if it is missing:
+
+```bash
+mkdir -p public/models
+curl -L --fail -o public/models/face-recognition-sface-2021dec.onnx \\
+  https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx
+```
+
+The expected file size is `38696353` bytes. Set `VITE_FACE_MODEL_VERSION` to a unique revision whenever model bytes or preprocessing change. ArcFace embeddings are incompatible with SFace: after deployment, students should make a fresh three-view registration, then the administrator processes the queued captures. Do not compare or retain older embeddings across the model-family change.
 
 ## Live Attendance Terminal
 

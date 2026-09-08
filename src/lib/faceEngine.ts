@@ -21,8 +21,12 @@ export interface EmbeddingResult {
 
 const modelPath = import.meta.env.VITE_FACE_EMBEDDING_MODEL as string | undefined
 const configuredModelVersion = (import.meta.env.VITE_FACE_MODEL_VERSION as string | undefined)?.trim()
-const normalization = (import.meta.env.VITE_FACE_INPUT_NORMALIZATION as string | undefined) === 'zero-one' ? 'zero-one' : 'arcface'
-export const currentPipelineVersion = `browser-face-v5-${normalization}-arcface-3point-single-align`
+export const faceModelFamily = (import.meta.env.VITE_FACE_MODEL_FAMILY as string | undefined)?.toLowerCase() === 'sface'
+  ? 'sface'
+  : 'arcface'
+const normalization = faceModelFamily === 'sface' ? 'raw-rgb' : 'arcface'
+export const recommendedFaceMatchThreshold = faceModelFamily === 'sface' ? 0.363 : 0.5
+export const currentPipelineVersion = `browser-face-v6-${faceModelFamily}-${normalization}-5point-single-align`
 export const currentModelVersion = configuredModelVersion || (modelPath ? `onnx:${modelPath.split('/').pop()}` : 'model-not-configured')
 
 let modelBytesPromise: Promise<ArrayBuffer> | null = null
@@ -43,7 +47,7 @@ export async function getAvailableComputeModes() {
 
 function getModelBytes() {
   if (!modelPath) {
-    throw new Error('Face model is not configured. Add an ArcFace-compatible 112x112 ONNX file and set VITE_FACE_EMBEDDING_MODEL.')
+    throw new Error('Face model is not configured. Add a supported 112x112 ONNX file and set VITE_FACE_EMBEDDING_MODEL.')
   }
   modelBytesPromise ??= fetch(modelPath).then(async (response) => {
     const contentType = response.headers.get('content-type') ?? ''
@@ -278,18 +282,25 @@ export function computeSimilarityTransform(
   }
 }
 
-function arcFaceTransform(region: FaceRegion, outputSize: number) {
+function faceAlignmentTransform(region: FaceRegion, outputSize: number) {
   if (!region.leftEye || !region.rightEye || !region.nose) return undefined
   const eyes = [region.leftEye, region.rightEye].sort((left, right) => left.x - right.x)
   const ratio = outputSize / 112
-  return computeSimilarityTransform(
-    [eyes[0], eyes[1], region.nose],
-    [
-      { x: 38.2946 * ratio, y: 51.6963 * ratio },
-      { x: 73.5318 * ratio, y: 51.5014 * ratio },
-      { x: 56.0252 * ratio, y: 71.7366 * ratio },
-    ],
-  )
+  const source = [eyes[0], eyes[1], region.nose]
+  const destination = [
+    { x: 38.2946 * ratio, y: 51.6963 * ratio },
+    { x: 73.5318 * ratio, y: 51.5014 * ratio },
+    { x: 56.0252 * ratio, y: 71.7366 * ratio },
+  ]
+  if (region.mouthLeft && region.mouthRight) {
+    const mouths = [region.mouthLeft, region.mouthRight].sort((left, right) => left.x - right.x)
+    source.push(mouths[0], mouths[1])
+    destination.push(
+      { x: 41.5493 * ratio, y: 92.3655 * ratio },
+      { x: 70.7299 * ratio, y: 92.2041 * ratio },
+    )
+  }
+  return computeSimilarityTransform(source, destination)
 }
 
 function renderNormalizedFace(canvas: HTMLCanvasElement, region: FaceRegion | undefined, outputSize: number) {
@@ -303,7 +314,7 @@ function renderNormalizedFace(canvas: HTMLCanvasElement, region: FaceRegion | un
   context.fillStyle = '#7f7f7f'
   context.fillRect(0, 0, outputSize, outputSize)
 
-  const transform = region ? arcFaceTransform(region, outputSize) : undefined
+  const transform = region ? faceAlignmentTransform(region, outputSize) : undefined
   if (transform) {
     context.setTransform(transform.a, transform.b, transform.c, transform.d, transform.e, transform.f)
     context.drawImage(canvas, 0, 0)
@@ -335,9 +346,9 @@ async function canvasToTensor(canvas: HTMLCanvasElement, region?: FaceRegion): P
   for (let index = 0; index < size * size; index += 1) {
     for (let channel = 0; channel < 3; channel += 1) {
       const value = pixels[index * 4 + channel]
-      data[channel * size * size + index] = normalization === 'arcface'
-        ? (value - 127.5) / 128
-        : value / 255
+      data[channel * size * size + index] = faceModelFamily === 'sface'
+        ? value
+        : (value - 127.5) / 128
     }
   }
   return new ort.Tensor('float32', data, [1, 3, size, size])

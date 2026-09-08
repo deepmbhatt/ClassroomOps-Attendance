@@ -10,8 +10,9 @@ import {
   loadAppData,
   loadEnrollmentFrames,
 } from '../lib/api'
+import { detectFaceRegions, refineFaceRegionLandmarks, selectPrimaryFace } from '../lib/faceDetection'
 import type { ComputeMode } from '../lib/faceEngine'
-import { buildEmbeddingTemplate, createEmbeddingFromAlignedCanvas, currentModelVersion, currentPipelineVersion, getAvailableComputeModes, isEmbeddingCompatible, preloadFaceEngine } from '../lib/faceEngine'
+import { buildEmbeddingTemplate, createEmbeddingFromCanvas, currentModelVersion, currentPipelineVersion, getAvailableComputeModes, isEmbeddingCompatible, preloadFaceEngine } from '../lib/faceEngine'
 
 type ClaimedJob = Awaited<ReturnType<typeof claimNextEnrollment>>
 
@@ -78,7 +79,14 @@ export function BiometricProcessing() {
 
     for (const frame of frames) {
       const canvas = await blobToCanvas(await downloadFaceFrame(frame.storage_path))
-      const result = await createEmbeddingFromAlignedCanvas(canvas, mode)
+      const regions = await detectFaceRegions(canvas)
+      const primaryFace = selectPrimaryFace(regions, canvas.width, canvas.height)
+      if (!primaryFace) {
+        qualityMessages.push('A face could not be located in a submitted frame')
+        continue
+      }
+      const refinedFace = await refineFaceRegionLandmarks(canvas, primaryFace)
+      const result = await createEmbeddingFromCanvas(canvas, mode, refinedFace, 1, 'strict')
       modelVersion = result.modelVersion
       pipelineVersion = result.pipelineVersion
       if (result.quality.ok) embeddings.push(result.vector)

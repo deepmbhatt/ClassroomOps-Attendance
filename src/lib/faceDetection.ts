@@ -13,6 +13,8 @@ export interface FaceRegion {
   rightEye?: FacePoint
   nose?: FacePoint
   mouth?: FacePoint
+  mouthLeft?: FacePoint
+  mouthRight?: FacePoint
 }
 
 const detectorModel = (import.meta.env.VITE_FACE_DETECTOR_MODEL as string | undefined)
@@ -26,6 +28,10 @@ const detectionConfidence = Number.isFinite(configuredDetectionConfidence)
   : 0.45
 
 let mediaPipeDetectorPromise: Promise<import('@mediapipe/tasks-vision').FaceDetector> | null = null
+let mediaPipeLandmarkerPromise: Promise<import('@mediapipe/tasks-vision').FaceLandmarker> | null = null
+
+const landmarkerModel = (import.meta.env.VITE_FACE_LANDMARKER_MODEL as string | undefined)
+  ?? 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task'
 
 async function getMediaPipeDetector() {
   if (!mediaPipeDetectorPromise) {
@@ -45,9 +51,89 @@ async function getMediaPipeDetector() {
   return mediaPipeDetectorPromise
 }
 
+async function getMediaPipeLandmarker() {
+  if (!mediaPipeLandmarkerPromise) {
+    mediaPipeLandmarkerPromise = import('@mediapipe/tasks-vision').then(async ({ FaceLandmarker, FilesetResolver }) => {
+      const files = await FilesetResolver.forVisionTasks(visionWasm)
+      return FaceLandmarker.createFromOptions(files, {
+        baseOptions: { modelAssetPath: landmarkerModel, delegate: 'CPU' },
+        runningMode: 'IMAGE',
+        numFaces: 4,
+        minFaceDetectionConfidence: detectionConfidence,
+        minFacePresenceConfidence: 0.45,
+        minTrackingConfidence: 0.45,
+        outputFaceBlendshapes: false,
+        outputFacialTransformationMatrixes: false,
+      })
+    }).catch((error) => {
+      mediaPipeLandmarkerPromise = null
+      throw error
+    })
+  }
+  return mediaPipeLandmarkerPromise
+}
+
 export async function preloadFaceDetector() {
   await getMediaPipeDetector()
   return 'MediaPipe face detector'
+}
+
+function averageLandmarks(
+  landmarks: Array<{ x: number; y: number }>,
+  indices: number[],
+  width: number,
+  height: number,
+) {
+  const points = indices.map((index) => landmarks[index]).filter(Boolean)
+  if (!points.length) return undefined
+  return {
+    x: points.reduce((sum, point) => sum + point.x, 0) * width / points.length,
+    y: points.reduce((sum, point) => sum + point.y, 0) * height / points.length,
+  }
+}
+
+/** Adds the five stable landmarks expected by ArcFace/SFace only when an embedding is needed. */
+export async function refineFaceRegionLandmarks(source: HTMLCanvasElement, region: FaceRegion) {
+  try {
+    const landmarker = await getMediaPipeLandmarker()
+    const candidates = landmarker.detect(source).faceLandmarks
+    if (!candidates.length) return region
+    const targetX = region.x + region.width / 2
+    const targetY = region.y + region.height / 2
+    const landmarks = [...candidates].sort((left, right) => {
+      const center = (points: Array<{ x: number; y: number }>) => ({
+        x: points.reduce((sum, point) => sum + point.x, 0) * source.width / points.length,
+        y: points.reduce((sum, point) => sum + point.y, 0) * source.height / points.length,
+      })
+      const leftCenter = center(left)
+      const rightCenter = center(right)
+      return Math.hypot(leftCenter.x - targetX, leftCenter.y - targetY)
+        - Math.hypot(rightCenter.x - targetX, rightCenter.y - targetY)
+    })[0]
+    if (!landmarks) return region
+
+    const eyes = [
+      averageLandmarks(landmarks, [33, 133, 159, 145], source.width, source.height),
+      averageLandmarks(landmarks, [362, 263, 386, 374], source.width, source.height),
+    ].filter((point): point is FacePoint => Boolean(point)).sort((left, right) => left.x - right.x)
+    const mouths = [
+      averageLandmarks(landmarks, [61], source.width, source.height),
+      averageLandmarks(landmarks, [291], source.width, source.height),
+    ].filter((point): point is FacePoint => Boolean(point)).sort((left, right) => left.x - right.x)
+
+    if (eyes.length !== 2 || mouths.length !== 2) return region
+    return {
+      ...region,
+      leftEye: eyes[0],
+      rightEye: eyes[1],
+      nose: averageLandmarks(landmarks, [1, 4], source.width, source.height) ?? region.nose,
+      mouthLeft: mouths[0],
+      mouthRight: mouths[1],
+      mouth: averageLandmarks(landmarks, [13, 14], source.width, source.height) ?? region.mouth,
+    }
+  } catch {
+    return region
+  }
 }
 
 export function selectPrimaryFace(regions: FaceRegion[], width: number, height: number) {

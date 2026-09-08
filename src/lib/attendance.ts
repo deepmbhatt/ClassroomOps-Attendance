@@ -43,7 +43,7 @@ export function canAcceptFaceConsensus(
   const normalConsensus = frameCount >= 2 && votes >= 2 && score >= threshold && margin >= minimumMargin
   const unanimousLowQualityConsensus = frameCount >= 3
     && votes === frameCount
-    && score >= Math.max(0.46, threshold - 0.03)
+    && score >= Math.max(0.3, threshold - 0.03)
     && margin >= minimumMargin + 0.015
   return normalConsensus || unanimousLowQualityConsensus
 }

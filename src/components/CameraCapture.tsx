@@ -1,7 +1,7 @@
 import { Camera, Check, RefreshCw, RotateCcw, ShieldAlert, Video } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { attachCameraStream, listVideoInputs, requestCamera, stopCameraStream } from '../lib/camera'
-import { detectFaceRegions, preloadFaceDetector, selectPrimaryFace } from '../lib/faceDetection'
+import { detectFaceRegions, preloadFaceDetector, refineFaceRegionLandmarks, selectPrimaryFace } from '../lib/faceDetection'
 import { cropFaceCanvas } from '../lib/faceEngine'
 import { Card, IconButton, StatusPill } from './Layout'
 
@@ -113,7 +113,8 @@ export function CameraCapture({
         setCaptureMessage('Face not found yet. Hold steady and capture again.')
         return
       }
-      const cropped = cropFaceCanvas(canvas, primaryFace)
+      const refinedFace = await refineFaceRegionLandmarks(canvas, primaryFace)
+      const cropped = cropFaceCanvas(canvas, refinedFace)
       setFrames((current) => [...current, {
         id: crypto.randomUUID(),
         dataUrl: cropped.toDataURL('image/jpeg', 0.88),
