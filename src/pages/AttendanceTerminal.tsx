@@ -7,7 +7,7 @@ import { closeLectureSession, createLectureSession, loadAppData, markAttendanceR
 import { canAcceptFaceConsensus, canAcceptFastFaceMatch, canInsertAttendance, confidenceLabel } from '../lib/attendance'
 import { attachCameraStream, listVideoInputs, requestCamera, stopCameraStream } from '../lib/camera'
 import { detectFaceRegions, preloadFaceDetector, refineFaceRegionLandmarks, selectPrimaryFace } from '../lib/faceDetection'
-import { createEmbeddingFromCanvas, isEmbeddingCompatible, preloadFaceEngine, recommendedFaceMatchThreshold, templateSimilarity } from '../lib/faceEngine'
+import { createEmbeddingCandidatesFromCanvas, isEmbeddingCompatible, preloadFaceEngine, recommendedFaceMatchThreshold, templateSimilarity } from '../lib/faceEngine'
 import type { AppData } from '../lib/api'
 
 const configuredThreshold = Number(import.meta.env.VITE_FACE_MATCH_THRESHOLD ?? recommendedFaceMatchThreshold)
@@ -226,13 +226,13 @@ export function AttendanceTerminal() {
     setError('')
     setScanFeedback({ tone: 'checking', title: 'Verifying face', detail: 'Please wait for approval before moving.' })
 
-    const vectors: number[][] = []
+    const frameCandidates: number[][][] = []
     const votes = new Map<string, number>()
     let verifiedStudentId = ''
     let verifiedScore = 0
     let verifiedMargin = 0
     let verifiedVotes = 0
-    let observedScore = 0
+    let observedScore = Number.NEGATIVE_INFINITY
     let observedMargin = 0
 
     try {
@@ -243,11 +243,15 @@ export function AttendanceTerminal() {
         const currentRegion = selectPrimaryFace(currentRegions, canvas.width, canvas.height)
         if (!currentRegion) continue
         const refinedRegion = await refineFaceRegionLandmarks(canvas, currentRegion)
-        const result = await createEmbeddingFromCanvas(canvas, 'auto', refinedRegion, 1, 'attendance')
-        vectors.push(result.vector)
+        const results = await createEmbeddingCandidatesFromCanvas(canvas, 'auto', refinedRegion, 1, 'attendance')
+        const candidates = results.map((result) => result.vector)
+        frameCandidates.push(candidates)
 
         const frameRanked = embeddings
-          .map((embedding) => ({ studentId: embedding.student_id, score: templateSimilarity(result.vector, embedding.vector) }))
+          .map((embedding) => ({
+            studentId: embedding.student_id,
+            score: Math.max(...candidates.map((candidate) => templateSimilarity(candidate, embedding.vector))),
+          }))
           .sort((left, right) => right.score - left.score)
         const frameBest = frameRanked[0]
         const frameSecond = frameRanked.find((candidate) => candidate.studentId !== frameBest?.studentId)
@@ -258,10 +262,10 @@ export function AttendanceTerminal() {
           observedMargin = frameMargin
         }
 
-        if (frameBest && vectors.length === 1 && canAcceptFastFaceMatch(
+        if (frameBest && frameCandidates.length === 1 && canAcceptFastFaceMatch(
           frameBest.score,
           frameMargin,
-          result.quality.ok,
+          results.some((result) => result.quality.ok),
           recognitionThreshold,
           recognitionMargin,
         )) {
@@ -272,11 +276,13 @@ export function AttendanceTerminal() {
           break
         }
 
-        if (vectors.length >= 2) {
+        if (frameCandidates.length >= 2) {
           const ranked = embeddings
             .map((embedding) => ({
               studentId: embedding.student_id,
-              score: vectors.reduce((sum, vector) => sum + templateSimilarity(vector, embedding.vector), 0) / vectors.length,
+              score: frameCandidates.reduce((sum, candidatesForFrame) => (
+                sum + Math.max(...candidatesForFrame.map((candidate) => templateSimilarity(candidate, embedding.vector)))
+              ), 0) / frameCandidates.length,
             }))
             .sort((left, right) => right.score - left.score)
           const best = ranked[0]
@@ -287,7 +293,7 @@ export function AttendanceTerminal() {
             observedScore = best.score
             observedMargin = margin
           }
-          if (best && canAcceptFaceConsensus(best.score, margin, voteCount, vectors.length, recognitionThreshold, recognitionMargin)) {
+          if (best && canAcceptFaceConsensus(best.score, margin, voteCount, frameCandidates.length, recognitionThreshold, recognitionMargin)) {
             verifiedStudentId = best.studentId
             verifiedScore = best.score
             verifiedMargin = margin
@@ -301,7 +307,7 @@ export function AttendanceTerminal() {
 
       if (!verifiedStudentId) {
         recognitionRetryAfterRef.current = Date.now() + 1400
-        const scoreDetail = observedScore
+        const scoreDetail = Number.isFinite(observedScore)
           ? ` Best match ${Math.round(observedScore * 100)}%, separation ${Math.round(observedMargin * 100)}%.`
           : ''
         setScanFeedback({ tone: 'retry', title: 'Not verified yet', detail: `Hold position briefly.${scoreDetail} Retrying automatically.` })
@@ -326,7 +332,7 @@ export function AttendanceTerminal() {
         status: 'present',
         confidence: Number(verifiedScore.toFixed(4)),
         source: 'face',
-        reason: `Adaptive verification (${verifiedVotes}/${vectors.length} votes), margin ${verifiedMargin.toFixed(3)}`,
+        reason: `Adaptive verification (${verifiedVotes}/${frameCandidates.length} votes), margin ${verifiedMargin.toFixed(3)}`,
       })
       setScanFeedback({ tone: 'success', title: studentName, detail: `Approved. Attendance marked at ${Math.round(verifiedScore * 100)}%. Next student may proceed.` })
       await queryClient.invalidateQueries({ queryKey: ['app-data'] })

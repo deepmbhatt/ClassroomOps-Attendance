@@ -12,7 +12,7 @@ import {
 } from '../lib/api'
 import { detectFaceRegions, refineFaceRegionLandmarks, selectPrimaryFace } from '../lib/faceDetection'
 import type { ComputeMode } from '../lib/faceEngine'
-import { buildEmbeddingTemplate, createEmbeddingFromCanvas, currentModelVersion, currentPipelineVersion, getAvailableComputeModes, isEmbeddingCompatible, preloadFaceEngine } from '../lib/faceEngine'
+import { buildEmbeddingTemplate, createEmbeddingCandidatesFromCanvas, currentModelVersion, currentPipelineVersion, getAvailableComputeModes, isEmbeddingCompatible, preloadFaceEngine } from '../lib/faceEngine'
 
 type ClaimedJob = Awaited<ReturnType<typeof claimNextEnrollment>>
 
@@ -86,10 +86,11 @@ export function BiometricProcessing() {
         continue
       }
       const refinedFace = await refineFaceRegionLandmarks(canvas, primaryFace)
-      const result = await createEmbeddingFromCanvas(canvas, mode, refinedFace, 1, 'strict')
+      const results = await createEmbeddingCandidatesFromCanvas(canvas, mode, refinedFace, 1, 'strict')
+      const result = results[0]
       modelVersion = result.modelVersion
       pipelineVersion = result.pipelineVersion
-      if (result.quality.ok) embeddings.push(result.vector)
+      if (result.quality.ok) embeddings.push(...results.map((candidate) => candidate.vector))
       else qualityMessages.push(...result.quality.messages)
     }
 

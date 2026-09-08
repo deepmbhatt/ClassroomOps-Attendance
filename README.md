@@ -245,7 +245,7 @@ supabase/migrations/202608180004_face_enrollment_upload_flow.sql
 
 ## ONNX Face Model
 
-The recommended recognition model is OpenCV SFace at `public/models/face-recognition-sface-2021dec.onnx`. The app sets `VITE_FACE_MODEL_FAMILY=sface`, uses SFace's exact raw-RGB 112x112 input contract, and refines each captured face to the canonical five-point eye/nose/mouth alignment. The lightweight detector remains active for idle camera polling; detailed landmarks run only when creating an embedding.
+The recommended recognition model is OpenCV SFace at `public/models/face-recognition-sface-2021dec.onnx`. The app sets `VITE_FACE_MODEL_FAMILY=sface`, uses SFace's exact raw-RGB 112x112 input contract, and refines each captured face to the canonical five-point eye/nose/mouth alignment. The lightweight detector remains active for idle camera polling; detailed landmarks run only when creating an embedding. Each enrollment and live frame keeps both the canonical five-point view and a detector-box fallback, so unstable landmarks from low-quality cameras do not erase an otherwise valid match.
 
 Download the official model if it is missing:
 

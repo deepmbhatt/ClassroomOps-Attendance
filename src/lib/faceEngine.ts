@@ -26,7 +26,7 @@ export const faceModelFamily = (import.meta.env.VITE_FACE_MODEL_FAMILY as string
   : 'arcface'
 const normalization = faceModelFamily === 'sface' ? 'raw-rgb' : 'arcface'
 export const recommendedFaceMatchThreshold = faceModelFamily === 'sface' ? 0.363 : 0.5
-export const currentPipelineVersion = `browser-face-v6-${faceModelFamily}-${normalization}-5point-single-align`
+export const currentPipelineVersion = `browser-face-v7-${faceModelFamily}-${normalization}-5point-box-fallback`
 export const currentModelVersion = configuredModelVersion || (modelPath ? `onnx:${modelPath.split('/').pop()}` : 'model-not-configured')
 
 let modelBytesPromise: Promise<ArrayBuffer> | null = null
@@ -186,6 +186,32 @@ export function createEmbeddingFromCanvas(
   qualityMode: FaceQualityMode = 'strict',
 ) {
   return runEmbedding(canvas, mode, scoreFrame(canvas, region, faceCount, qualityMode), region)
+}
+
+function boxOnlyRegion(region: FaceRegion): FaceRegion {
+  return {
+    x: region.x,
+    y: region.y,
+    width: region.width,
+    height: region.height,
+    confidence: region.confidence,
+  }
+}
+
+export async function createEmbeddingCandidatesFromCanvas(
+  canvas: HTMLCanvasElement,
+  mode: ComputeMode,
+  region: FaceRegion,
+  faceCount = 1,
+  qualityMode: FaceQualityMode = 'strict',
+) {
+  const quality = scoreFrame(canvas, region, faceCount, qualityMode)
+  const aligned = await runEmbedding(canvas, mode, quality, region)
+  if (!region.leftEye || !region.rightEye || !region.nose) return [aligned]
+  const boxed = await runEmbedding(canvas, mode, quality, boxOnlyRegion(region))
+  return cosineSimilarity(aligned.vector, boxed.vector) > 0.995
+    ? [aligned]
+    : [aligned, boxed]
 }
 
 export function createEmbeddingFromAlignedCanvas(
