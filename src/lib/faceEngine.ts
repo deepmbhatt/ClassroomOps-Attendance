@@ -33,36 +33,62 @@ let modelBytesPromise: Promise<ArrayBuffer> | null = null
 const sessionPromises = new Map<'wasm' | 'webgpu', Promise<InferenceSession>>()
 let ortPromise: Promise<typeof import('onnxruntime-web')> | null = null
 
+function isMobileRuntime() {
+  return typeof navigator !== 'undefined'
+    && (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || navigator.maxTouchPoints > 2)
+}
+
 function getOrt() {
-  ortPromise ??= import('onnxruntime-web')
+  ortPromise ??= import('onnxruntime-web').then((ort) => {
+    if (isMobileRuntime()) ort.env.wasm.numThreads = 1
+    return ort
+  })
   return ortPromise
 }
 
 export async function getAvailableComputeModes() {
   return {
     cpu: true,
-    gpu: typeof navigator !== 'undefined' && 'gpu' in navigator,
+    gpu: typeof navigator !== 'undefined' && 'gpu' in navigator && !isMobileRuntime(),
   }
 }
 
-function getModelBytes() {
+function expectedModelSize() {
+  if (modelPath?.includes('face-recognition-sface-2021dec-int8.onnx')) return 9896933
+  if (modelPath?.includes('face-recognition-sface-2021dec.onnx')) return 38696353
+  return undefined
+}
+
+async function downloadModelBytes(retry = false) {
   if (!modelPath) {
     throw new Error('Face model is not configured. Add a supported 112x112 ONNX file and set VITE_FACE_EMBEDDING_MODEL.')
   }
-  modelBytesPromise ??= fetch(modelPath).then(async (response) => {
-    const contentType = response.headers.get('content-type') ?? ''
-    if (!response.ok) throw new Error(`Model request failed with HTTP ${response.status}`)
-    if (contentType.includes('text/html')) throw new Error('Model URL returned HTML instead of an ONNX file')
-    const bytes = await response.arrayBuffer()
-    const prefix = String.fromCharCode(...new Uint8Array(bytes.slice(0, Math.min(24, bytes.byteLength)))).trimStart()
-    if (bytes.byteLength < 1024 || prefix.startsWith('<')) {
-      throw new Error('Model URL did not return a valid binary ONNX file')
-    }
-    return bytes
-  }).catch((error) => {
-    modelBytesPromise = null
-    throw error
-  })
+  const separator = modelPath.includes('?') ? '&' : '?'
+  const requestPath = retry ? modelPath + separator + 'download_retry=' + Date.now() : modelPath
+  const response = await fetch(requestPath, { cache: 'no-store' })
+  const contentType = response.headers.get('content-type') ?? ''
+  if (!response.ok) throw new Error('Model request failed with HTTP ' + response.status)
+  if (contentType.includes('text/html')) throw new Error('Model URL returned HTML instead of an ONNX file')
+  const bytes = await response.arrayBuffer()
+  const prefix = new Uint8Array(bytes.slice(0, Math.min(24, bytes.byteLength)))
+  const prefixText = String.fromCharCode(...prefix).trimStart()
+  const expectedSize = expectedModelSize()
+  if (bytes.byteLength < 1024 || prefixText.startsWith('<') || prefix[0] !== 0x08) {
+    throw new Error('Model download was not a valid binary ONNX file')
+  }
+  if (expectedSize && bytes.byteLength !== expectedSize) {
+    throw new Error('Model download was incomplete: received ' + bytes.byteLength + ' of ' + expectedSize + ' bytes')
+  }
+  return bytes
+}
+
+function getModelBytes() {
+  modelBytesPromise ??= downloadModelBytes()
+    .catch(() => downloadModelBytes(true))
+    .catch((error) => {
+      modelBytesPromise = null
+      throw error
+    })
   return modelBytesPromise
 }
 

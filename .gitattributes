@@ -1,3 +1,5 @@
 public/models/*.onnx filter=lfs diff=lfs merge=lfs -text
 
 public/models/face-recognition-sface-2021dec.onnx -filter -diff -merge
+
+public/models/face-recognition-sface-2021dec-int8.onnx -filter -diff -merge
