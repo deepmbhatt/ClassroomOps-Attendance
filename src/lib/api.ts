@@ -23,6 +23,7 @@ import {
   demoMarkComponents,
   demoProfiles,
 } from './demoData'
+import { parseEmbeddingVector } from './faceEngine'
 import { devBypass, requireSupabase } from './supabase'
 
 export interface AppData {
@@ -123,7 +124,10 @@ export async function loadAppData(): Promise<AppData> {
       student_name: profileById.get(enrollment.student_id)?.full_name ?? 'Student',
       course_codes: courseCodesByStudent.get(enrollment.student_id) ?? [],
     })),
-    embeddings: (embeddings.data ?? []).map((embedding) => ({ ...embedding, vector: embedding.embedding })),
+    embeddings: (embeddings.data ?? []).map((embedding) => ({
+      ...embedding,
+      vector: parseEmbeddingVector(embedding.embedding),
+    })),
     lectures: (lectures.data ?? []).map((lecture) => ({ ...lecture, course_code: courseById.get(lecture.course_id)?.code ?? 'Course' })),
     attendance: (attendance.data ?? []).map((record) => ({ ...record, student_name: profileById.get(record.student_id)?.full_name ?? 'Student' })),
     assessments: (assessments.data ?? []).map((assessment) => ({ ...assessment, course_code: courseById.get(assessment.course_id)?.code ?? 'Course' })),

@@ -389,6 +389,31 @@ export function averageEmbeddings(vectors: number[][]) {
 
 const embeddingTemplateMarker = -8142026
 
+export function parseEmbeddingVector(value: unknown): number[] {
+  let values: unknown[]
+  if (Array.isArray(value)) {
+    values = value
+  } else if (ArrayBuffer.isView(value)) {
+    values = Array.from(value as unknown as ArrayLike<unknown>)
+  } else if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return []
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (Array.isArray(parsed)) values = parsed
+      else return []
+    } catch {
+      if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return []
+      values = trimmed.slice(1, -1).split(',').map((item) => item.trim())
+    }
+  } else {
+    return []
+  }
+
+  const numbers = values.map(Number)
+  return numbers.length && numbers.every(Number.isFinite) ? numbers : []
+}
+
 export function buildEmbeddingTemplate(vectors: number[][]) {
   const usable = vectors.filter((vector) => vector.length)
   if (!usable.length) return []
@@ -398,21 +423,30 @@ export function buildEmbeddingTemplate(vectors: number[][]) {
   return [embeddingTemplateMarker, dimension, templates.length, ...templates.flat()]
 }
 
-export function templateSimilarity(query: number[], template: number[]) {
+export function templateSimilarity(query: number[], templateValue: unknown) {
+  const template = parseEmbeddingVector(templateValue)
   if (!query.length || !template.length) return 0
-  if (template[0] !== embeddingTemplateMarker) {
-    return template.length === query.length ? cosineSimilarity(query, template) : 0
-  }
 
   const dimension = Math.trunc(template[1])
   const count = Math.trunc(template[2])
-  if (dimension !== query.length || count < 1 || template.length !== 3 + dimension * count) return 0
-  let best = -1
-  for (let index = 0; index < count; index += 1) {
-    const offset = 3 + index * dimension
-    best = Math.max(best, cosineSimilarity(query, template.slice(offset, offset + dimension)))
+  const structuredLength = 3 + dimension * count
+  const hasTemplateShape = dimension === query.length
+    && count >= 1
+    && Number.isInteger(count)
+    && template.length === structuredLength
+  const hasTemplateMarker = Math.abs(template[0] - embeddingTemplateMarker) < 0.5
+
+  if (hasTemplateMarker || hasTemplateShape) {
+    if (!hasTemplateShape) return 0
+    let best = -1
+    for (let index = 0; index < count; index += 1) {
+      const offset = 3 + index * dimension
+      best = Math.max(best, cosineSimilarity(query, template.slice(offset, offset + dimension)))
+    }
+    return best
   }
-  return best
+
+  return template.length === query.length ? cosineSimilarity(query, template) : 0
 }
 
 function normalize(vector: number[]) {

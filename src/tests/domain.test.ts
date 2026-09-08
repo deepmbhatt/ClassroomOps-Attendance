@@ -5,7 +5,7 @@ import { cameraErrorMessage } from '../lib/camera'
 import { selectPrimaryFace } from '../lib/faceDetection'
 import { canTransitionEnrollment, isEnrollmentLocked } from '../lib/enrollmentState'
 import { previewImport } from '../lib/importValidation'
-import { averageEmbeddings, buildEmbeddingTemplate, computeSimilarityTransform, cosineSimilarity, faceQualityLimits, templateSimilarity } from '../lib/faceEngine'
+import { averageEmbeddings, buildEmbeddingTemplate, computeSimilarityTransform, cosineSimilarity, faceQualityLimits, parseEmbeddingVector, templateSimilarity } from '../lib/faceEngine'
 
 describe('enrollment state machine', () => {
   it('allows the intended happy path and rejects unsafe duplicate processing paths', () => {
@@ -92,6 +92,23 @@ describe('face embedding decisions', () => {
     expect(templateSimilarity([1, 0], template)).toBeCloseTo(1, 6)
     expect(templateSimilarity([0, 1], template)).toBeCloseTo(1, 6)
     expect(templateSimilarity([1, 0, 0], template)).toBe(0)
+  })
+
+  it('decodes PostgreSQL and JSON array representations before matching', () => {
+    expect(parseEmbeddingVector('{1,0,0.5}')).toEqual([1, 0, 0.5])
+    expect(parseEmbeddingVector('[1,0,0.5]')).toEqual([1, 0, 0.5])
+    expect(parseEmbeddingVector(['1', 0, 0.5])).toEqual([1, 0, 0.5])
+    expect(parseEmbeddingVector('{1,not-a-number}')).toEqual([])
+
+    const template = buildEmbeddingTemplate([[1, 0], [0, 1]])
+    const postgresTemplate = '{' + template.join(',') + '}'
+    expect(templateSimilarity([1, 0], postgresTemplate)).toBeCloseTo(1, 6)
+  })
+
+  it('recognizes a structurally valid template if a database changes marker precision', () => {
+    const template = buildEmbeddingTemplate([[1, 0]])
+    template[0] += 1
+    expect(templateSimilarity([1, 0], template)).toBeCloseTo(1, 6)
   })
 })
 
