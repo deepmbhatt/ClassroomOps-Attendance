@@ -29,7 +29,7 @@ export function canAcceptFastFaceMatch(
   threshold: number,
   minimumMargin: number,
 ) {
-  return qualityOk && score >= threshold + 0.07 && margin >= minimumMargin + 0.04
+  return qualityOk && score >= threshold + 0.06 && margin >= minimumMargin + 0.03
 }
 
 export function canAcceptFaceConsensus(
@@ -43,8 +43,8 @@ export function canAcceptFaceConsensus(
   const normalConsensus = frameCount >= 2 && votes >= 2 && score >= threshold && margin >= minimumMargin
   const unanimousLowQualityConsensus = frameCount >= 3
     && votes === frameCount
-    && score >= Math.max(0.52, threshold - 0.04)
-    && margin >= minimumMargin + 0.02
+    && score >= Math.max(0.46, threshold - 0.03)
+    && margin >= minimumMargin + 0.015
   return normalConsensus || unanimousLowQualityConsensus
 }
 

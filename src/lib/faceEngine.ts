@@ -22,7 +22,7 @@ export interface EmbeddingResult {
 const modelPath = import.meta.env.VITE_FACE_EMBEDDING_MODEL as string | undefined
 const configuredModelVersion = (import.meta.env.VITE_FACE_MODEL_VERSION as string | undefined)?.trim()
 const normalization = (import.meta.env.VITE_FACE_INPUT_NORMALIZATION as string | undefined) === 'zero-one' ? 'zero-one' : 'arcface'
-export const currentPipelineVersion = `browser-face-v4-${normalization}-eye-aligned-multi-template`
+export const currentPipelineVersion = `browser-face-v5-${normalization}-arcface-3point-single-align`
 export const currentModelVersion = configuredModelVersion || (modelPath ? `onnx:${modelPath.split('/').pop()}` : 'model-not-configured')
 
 let modelBytesPromise: Promise<ArrayBuffer> | null = null
@@ -143,14 +143,12 @@ export function scoreFrame(
   return { ok: messages.length === 0 && score >= limits.minimumScore, score, messages }
 }
 
-export async function createEmbeddingFromCanvas(
+async function runEmbedding(
   canvas: HTMLCanvasElement,
   mode: ComputeMode,
+  quality: FaceQuality,
   region?: FaceRegion,
-  faceCount = region ? 1 : 0,
-  qualityMode: FaceQualityMode = 'strict',
 ): Promise<EmbeddingResult> {
-  const quality = scoreFrame(canvas, region, faceCount, qualityMode)
   const modes = await getAvailableComputeModes()
   const backend = mode === 'gpu' || (mode === 'auto' && modes.gpu) ? 'webgpu' : 'wasm'
 
@@ -174,6 +172,31 @@ export async function createEmbeddingFromCanvas(
     const message = error instanceof Error ? error.message : 'Unknown model loading error'
     throw new Error(`Could not initialize or run the ONNX face model: ${message}`)
   }
+}
+
+export function createEmbeddingFromCanvas(
+  canvas: HTMLCanvasElement,
+  mode: ComputeMode,
+  region?: FaceRegion,
+  faceCount = region ? 1 : 0,
+  qualityMode: FaceQualityMode = 'strict',
+) {
+  return runEmbedding(canvas, mode, scoreFrame(canvas, region, faceCount, qualityMode), region)
+}
+
+export function createEmbeddingFromAlignedCanvas(
+  canvas: HTMLCanvasElement,
+  mode: ComputeMode,
+  qualityMode: FaceQualityMode = 'strict',
+) {
+  const alignedRegion: FaceRegion = {
+    x: 0,
+    y: 0,
+    width: canvas.width,
+    height: canvas.height,
+    confidence: 1,
+  }
+  return runEmbedding(canvas, mode, scoreFrame(canvas, alignedRegion, 1, qualityMode))
 }
 
 export function cosineSimilarity(left: number[], right: number[]) {
@@ -202,6 +225,73 @@ function paddedSquare(region: FaceRegion, maxWidth: number, maxHeight: number) {
   }
 }
 
+export interface SimilarityTransform {
+  a: number
+  b: number
+  c: number
+  d: number
+  e: number
+  f: number
+}
+
+export function computeSimilarityTransform(
+  source: Array<{ x: number; y: number }>,
+  destination: Array<{ x: number; y: number }>,
+): SimilarityTransform | undefined {
+  if (source.length !== destination.length || source.length < 2) return undefined
+  const sourceCenter = source.reduce((sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y }), { x: 0, y: 0 })
+  const destinationCenter = destination.reduce((sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y }), { x: 0, y: 0 })
+  sourceCenter.x /= source.length
+  sourceCenter.y /= source.length
+  destinationCenter.x /= destination.length
+  destinationCenter.y /= destination.length
+
+  let rotationReal = 0
+  let rotationImaginary = 0
+  let sourceEnergy = 0
+  for (let index = 0; index < source.length; index += 1) {
+    const sx = source[index].x - sourceCenter.x
+    const sy = source[index].y - sourceCenter.y
+    const dx = destination[index].x - destinationCenter.x
+    const dy = destination[index].y - destinationCenter.y
+    rotationReal += sx * dx + sy * dy
+    rotationImaginary += sx * dy - sy * dx
+    sourceEnergy += sx * sx + sy * sy
+  }
+
+  const rotationMagnitude = Math.hypot(rotationReal, rotationImaginary)
+  if (sourceEnergy < 1e-6 || rotationMagnitude < 1e-6) return undefined
+  const scale = rotationMagnitude / sourceEnergy
+  const cosine = rotationReal / rotationMagnitude
+  const sine = rotationImaginary / rotationMagnitude
+  const a = scale * cosine
+  const b = scale * sine
+  const c = -scale * sine
+  const d = scale * cosine
+  return {
+    a,
+    b,
+    c,
+    d,
+    e: destinationCenter.x - a * sourceCenter.x - c * sourceCenter.y,
+    f: destinationCenter.y - b * sourceCenter.x - d * sourceCenter.y,
+  }
+}
+
+function arcFaceTransform(region: FaceRegion, outputSize: number) {
+  if (!region.leftEye || !region.rightEye || !region.nose) return undefined
+  const eyes = [region.leftEye, region.rightEye].sort((left, right) => left.x - right.x)
+  const ratio = outputSize / 112
+  return computeSimilarityTransform(
+    [eyes[0], eyes[1], region.nose],
+    [
+      { x: 38.2946 * ratio, y: 51.6963 * ratio },
+      { x: 73.5318 * ratio, y: 51.5014 * ratio },
+      { x: 56.0252 * ratio, y: 71.7366 * ratio },
+    ],
+  )
+}
+
 function renderNormalizedFace(canvas: HTMLCanvasElement, region: FaceRegion | undefined, outputSize: number) {
   const output = document.createElement('canvas')
   output.width = outputSize
@@ -213,23 +303,12 @@ function renderNormalizedFace(canvas: HTMLCanvasElement, region: FaceRegion | un
   context.fillStyle = '#7f7f7f'
   context.fillRect(0, 0, outputSize, outputSize)
 
-  if (region?.leftEye && region.rightEye) {
-    const first = region.leftEye.x <= region.rightEye.x ? region.leftEye : region.rightEye
-    const second = first === region.leftEye ? region.rightEye : region.leftEye
-    const deltaX = second.x - first.x
-    const deltaY = second.y - first.y
-    const eyeDistance = Math.hypot(deltaX, deltaY)
-    if (eyeDistance >= Math.max(8, region.width * 0.12)) {
-      const midpointX = (first.x + second.x) / 2
-      const midpointY = (first.y + second.y) / 2
-      const scale = (outputSize * 0.32) / eyeDistance
-      context.translate(outputSize / 2, outputSize * 0.43)
-      context.rotate(-Math.atan2(deltaY, deltaX))
-      context.scale(scale, scale)
-      context.translate(-midpointX, -midpointY)
-      context.drawImage(canvas, 0, 0)
-      return output
-    }
+  const transform = region ? arcFaceTransform(region, outputSize) : undefined
+  if (transform) {
+    context.setTransform(transform.a, transform.b, transform.c, transform.d, transform.e, transform.f)
+    context.drawImage(canvas, 0, 0)
+    context.resetTransform()
+    return output
   }
 
   const crop = region ? paddedSquare(region, canvas.width, canvas.height) : {

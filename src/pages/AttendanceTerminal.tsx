@@ -7,14 +7,13 @@ import { closeLectureSession, createLectureSession, loadAppData, markAttendanceR
 import { canAcceptFaceConsensus, canAcceptFastFaceMatch, canInsertAttendance, confidenceLabel } from '../lib/attendance'
 import { attachCameraStream, listVideoInputs, requestCamera, stopCameraStream } from '../lib/camera'
 import { detectFaceRegions, preloadFaceDetector, selectPrimaryFace } from '../lib/faceDetection'
-import type { FaceRegion } from '../lib/faceDetection'
-import { averageEmbeddings, createEmbeddingFromCanvas, isEmbeddingCompatible, preloadFaceEngine, templateSimilarity } from '../lib/faceEngine'
+import { createEmbeddingFromCanvas, isEmbeddingCompatible, preloadFaceEngine, templateSimilarity } from '../lib/faceEngine'
 import type { AppData } from '../lib/api'
 
-const configuredThreshold = Number(import.meta.env.VITE_FACE_MATCH_THRESHOLD ?? 0.58)
-const configuredMargin = Number(import.meta.env.VITE_FACE_MATCH_MARGIN ?? 0.06)
-const recognitionThreshold = Number.isFinite(configuredThreshold) ? configuredThreshold : 0.58
-const recognitionMargin = Number.isFinite(configuredMargin) ? configuredMargin : 0.06
+const configuredThreshold = Number(import.meta.env.VITE_FACE_MATCH_THRESHOLD ?? 0.5)
+const configuredMargin = Number(import.meta.env.VITE_FACE_MATCH_MARGIN ?? 0.04)
+const recognitionThreshold = Number.isFinite(configuredThreshold) ? Math.min(0.7, Math.max(0.42, configuredThreshold)) : 0.5
+const recognitionMargin = Number.isFinite(configuredMargin) ? Math.min(0.15, Math.max(0.02, configuredMargin)) : 0.04
 
 type ScanFeedback = {
   tone: 'idle' | 'checking' | 'success' | 'retry'
@@ -25,7 +24,7 @@ type ScanFeedback = {
 let recognitionWarmupPromise: Promise<void> | null = null
 
 function warmRecognition() {
-  recognitionWarmupPromise ??= Promise.all([preloadFaceDetector(), preloadFaceEngine('cpu')])
+  recognitionWarmupPromise ??= Promise.all([preloadFaceDetector(), preloadFaceEngine('auto')])
     .then(() => undefined)
     .catch((error) => {
       recognitionWarmupPromise = null
@@ -195,7 +194,7 @@ export function AttendanceTerminal() {
       try {
         const faces = await detectFaceRegions(probe)
         const primaryFace = selectPrimaryFace(faces, probe.width, probe.height)
-        if (primaryFace) await recognizeBurst(probe, primaryFace)
+        if (primaryFace) await recognizeBurst()
 
       } catch (nextError) {
         scanningRef.current = false
@@ -205,21 +204,7 @@ export function AttendanceTerminal() {
     }
   }
 
-  function scaleFaceRegion(region: FaceRegion, from: HTMLCanvasElement, to: HTMLCanvasElement): FaceRegion {
-    const scaleX = to.width / from.width
-    const scaleY = to.height / from.height
-    return {
-      x: region.x * scaleX,
-      y: region.y * scaleY,
-      width: region.width * scaleX,
-      height: region.height * scaleY,
-      confidence: region.confidence,
-      leftEye: region.leftEye ? { x: region.leftEye.x * scaleX, y: region.leftEye.y * scaleY } : undefined,
-      rightEye: region.rightEye ? { x: region.rightEye.x * scaleX, y: region.rightEye.y * scaleY } : undefined,
-    }
-  }
-
-  async function recognizeBurst(probe: HTMLCanvasElement, detectedRegion: FaceRegion) {
+  async function recognizeBurst() {
     const latestData = latestDataRef.current
     const latestAllowedIds = new Set((latestData?.courseMemberships ?? [])
       .filter((item) => item.course_id === course?.id && !item.deleted_at)
@@ -247,13 +232,17 @@ export function AttendanceTerminal() {
     let verifiedScore = 0
     let verifiedMargin = 0
     let verifiedVotes = 0
+    let observedScore = 0
+    let observedMargin = 0
 
     try {
       for (let index = 0; index < 3; index += 1) {
         const canvas = captureCanvas(0.68)
         if (!canvas) continue
-        const region = scaleFaceRegion(detectedRegion, probe, canvas)
-        const result = await createEmbeddingFromCanvas(canvas, 'cpu', region, 1, 'attendance')
+        const currentRegions = await detectFaceRegions(canvas)
+        const currentRegion = selectPrimaryFace(currentRegions, canvas.width, canvas.height)
+        if (!currentRegion) continue
+        const result = await createEmbeddingFromCanvas(canvas, 'auto', currentRegion, 1, 'attendance')
         vectors.push(result.vector)
 
         const frameRanked = embeddings
@@ -263,8 +252,12 @@ export function AttendanceTerminal() {
         const frameSecond = frameRanked.find((candidate) => candidate.studentId !== frameBest?.studentId)
         if (frameBest) votes.set(frameBest.studentId, (votes.get(frameBest.studentId) ?? 0) + 1)
         const frameMargin = frameBest ? frameBest.score - (frameSecond?.score ?? 0) : 0
+        if (frameBest && frameBest.score > observedScore) {
+          observedScore = frameBest.score
+          observedMargin = frameMargin
+        }
 
-        if (frameBest && index === 0 && canAcceptFastFaceMatch(
+        if (frameBest && vectors.length === 1 && canAcceptFastFaceMatch(
           frameBest.score,
           frameMargin,
           result.quality.ok,
@@ -279,14 +272,20 @@ export function AttendanceTerminal() {
         }
 
         if (vectors.length >= 2) {
-          const queryVector = averageEmbeddings(vectors)
           const ranked = embeddings
-            .map((embedding) => ({ studentId: embedding.student_id, score: templateSimilarity(queryVector, embedding.vector) }))
+            .map((embedding) => ({
+              studentId: embedding.student_id,
+              score: vectors.reduce((sum, vector) => sum + templateSimilarity(vector, embedding.vector), 0) / vectors.length,
+            }))
             .sort((left, right) => right.score - left.score)
           const best = ranked[0]
           const second = ranked.find((candidate) => candidate.studentId !== best?.studentId)
           const voteCount = best ? votes.get(best.studentId) ?? 0 : 0
           const margin = best ? best.score - (second?.score ?? 0) : 0
+          if (best && best.score > observedScore) {
+            observedScore = best.score
+            observedMargin = margin
+          }
           if (best && canAcceptFaceConsensus(best.score, margin, voteCount, vectors.length, recognitionThreshold, recognitionMargin)) {
             verifiedStudentId = best.studentId
             verifiedScore = best.score
@@ -301,7 +300,10 @@ export function AttendanceTerminal() {
 
       if (!verifiedStudentId) {
         recognitionRetryAfterRef.current = Date.now() + 1400
-        setScanFeedback({ tone: 'retry', title: 'Not verified yet', detail: 'Please wait. Retrying automatically.' })
+        const scoreDetail = observedScore
+          ? ` Best match ${Math.round(observedScore * 100)}%, separation ${Math.round(observedMargin * 100)}%.`
+          : ''
+        setScanFeedback({ tone: 'retry', title: 'Not verified yet', detail: `Hold position briefly.${scoreDetail} Retrying automatically.` })
         return
       }
 

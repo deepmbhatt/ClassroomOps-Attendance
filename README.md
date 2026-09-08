@@ -104,8 +104,8 @@ VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
 VITE_DEV_AUTH_BYPASS=false
 VITE_FACE_EMBEDDING_MODEL=/models/face-embedding.onnx
 VITE_FACE_MODEL_VERSION=arcface-model-v1
-VITE_FACE_MATCH_THRESHOLD=0.58
-VITE_FACE_MATCH_MARGIN=0.06
+VITE_FACE_MATCH_THRESHOLD=0.50
+VITE_FACE_MATCH_MARGIN=0.04
 ```
 
 Find values in Supabase:
@@ -144,8 +144,8 @@ VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
 VITE_DEV_AUTH_BYPASS=false
 VITE_FACE_EMBEDDING_MODEL=/models/face-embedding.onnx
 VITE_FACE_MODEL_VERSION=arcface-model-v1
-VITE_FACE_MATCH_THRESHOLD=0.58
-VITE_FACE_MATCH_MARGIN=0.06
+VITE_FACE_MATCH_THRESHOLD=0.50
+VITE_FACE_MATCH_MARGIN=0.04
 ```
 
 6. Deploy.
@@ -241,7 +241,7 @@ supabase/migrations/202608180004_face_enrollment_upload_flow.sql
 
 ## ONNX Face Model
 
-Biometric processing requires an ArcFace-compatible 112x112 ONNX recognition model at `public/models/face-embedding.onnx` (or another URL set in `VITE_FACE_EMBEDDING_MODEL`). Set `VITE_FACE_MODEL_VERSION` to a unique revision and change it whenever the ONNX bytes change. The browser pipeline uses MediaPipe eye landmarks for roll/scale alignment and stores an average plus each enrollment view as a compact multi-template. After a model or pipeline change, use **Reprocess incompatible** in the admin biometric queue before starting live attendance.
+Biometric processing requires an ArcFace-compatible 112x112 ONNX recognition model at `public/models/face-embedding.onnx` (or another URL set in `VITE_FACE_EMBEDDING_MODEL`). Set `VITE_FACE_MODEL_VERSION` to a unique revision and change it whenever the ONNX bytes change. The browser pipeline uses one canonical MediaPipe eye-and-nose ArcFace alignment and stores an average plus each enrollment view as a compact multi-template. After a model or pipeline change, use **Reprocess incompatible** in the admin biometric queue before starting live attendance.
 
 
 ## Live Attendance Terminal

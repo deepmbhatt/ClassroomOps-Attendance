@@ -10,11 +10,16 @@ import {
   loadAppData,
   loadEnrollmentFrames,
 } from '../lib/api'
-import { detectFaceRegions, preloadFaceDetector, selectPrimaryFace } from '../lib/faceDetection'
 import type { ComputeMode } from '../lib/faceEngine'
-import { buildEmbeddingTemplate, createEmbeddingFromCanvas, currentModelVersion, currentPipelineVersion, getAvailableComputeModes, isEmbeddingCompatible, preloadFaceEngine } from '../lib/faceEngine'
+import { buildEmbeddingTemplate, createEmbeddingFromAlignedCanvas, currentModelVersion, currentPipelineVersion, getAvailableComputeModes, isEmbeddingCompatible, preloadFaceEngine } from '../lib/faceEngine'
 
 type ClaimedJob = Awaited<ReturnType<typeof claimNextEnrollment>>
+
+function processingErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') return error.message
+  return fallback
+}
 
 export function BiometricProcessing() {
   const queryClient = useQueryClient()
@@ -64,7 +69,7 @@ export function BiometricProcessing() {
       return false
     }
 
-    await Promise.all([preloadFaceDetector(), preloadFaceEngine(mode)])
+    await preloadFaceEngine(mode)
 
     const embeddings = []
     const qualityMessages = []
@@ -73,9 +78,7 @@ export function BiometricProcessing() {
 
     for (const frame of frames) {
       const canvas = await blobToCanvas(await downloadFaceFrame(frame.storage_path))
-      const regions = await detectFaceRegions(canvas)
-      const primaryFace = selectPrimaryFace(regions, canvas.width, canvas.height)
-      const result = await createEmbeddingFromCanvas(canvas, mode, primaryFace, primaryFace ? 1 : 0)
+      const result = await createEmbeddingFromAlignedCanvas(canvas, mode)
       modelVersion = result.modelVersion
       pipelineVersion = result.pipelineVersion
       if (result.quality.ok) embeddings.push(result.vector)
@@ -112,7 +115,7 @@ export function BiometricProcessing() {
       setMessage(ok ? 'Processed 1 enrollment and marked it ready.' : 'Enrollment moved to quality failed. Check validation message.')
       await queryClient.invalidateQueries({ queryKey: ['app-data'] })
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not process enrollment')
+      setMessage(processingErrorMessage(error, 'Could not process enrollment'))
     } finally {
       setProcessing(false)
     }
@@ -125,7 +128,7 @@ export function BiometricProcessing() {
       setMessage(ok ? 'Reprocessed this enrollment with the latest face pipeline.' : 'Enrollment moved to quality failed. Check validation message.')
       await queryClient.invalidateQueries({ queryKey: ['app-data'] })
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not reprocess enrollment')
+      setMessage(processingErrorMessage(error, 'Could not reprocess enrollment'))
     } finally {
       setProcessing(false)
     }
@@ -147,7 +150,7 @@ export function BiometricProcessing() {
       setMessage(`Reprocessing finished. ${processed} ready, ${failed} failed.`)
       await queryClient.invalidateQueries({ queryKey: ['app-data'] })
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not reprocess incompatible enrollments')
+      setMessage(processingErrorMessage(error, 'Could not reprocess incompatible enrollments'))
     } finally {
       setProcessing(false)
     }
@@ -176,7 +179,7 @@ export function BiometricProcessing() {
       setMessage(`Finished queue. ${processed} ready, ${failed} failed.`)
       await queryClient.invalidateQueries({ queryKey: ['app-data'] })
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not process enrollment queue')
+      setMessage(processingErrorMessage(error, 'Could not process enrollment queue'))
     } finally {
       setProcessing(false)
     }

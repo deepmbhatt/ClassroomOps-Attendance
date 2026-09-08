@@ -11,11 +11,9 @@ export interface FaceRegion {
   confidence: number
   leftEye?: FacePoint
   rightEye?: FacePoint
+  nose?: FacePoint
+  mouth?: FacePoint
 }
-
-type NativeDetection = { boundingBox?: { x: number; y: number; width: number; height: number } }
-type NativeDetector = { detect(source: CanvasImageSource): Promise<NativeDetection[]> }
-type NativeDetectorCtor = new (options?: { fastMode?: boolean; maxDetectedFaces?: number }) => NativeDetector
 
 const detectorModel = (import.meta.env.VITE_FACE_DETECTOR_MODEL as string | undefined)
   ?? 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite'
@@ -27,15 +25,7 @@ const detectionConfidence = Number.isFinite(configuredDetectionConfidence)
   ? Math.min(0.9, Math.max(0.25, configuredDetectionConfidence))
   : 0.45
 
-let nativeDetector: NativeDetector | null | undefined
 let mediaPipeDetectorPromise: Promise<import('@mediapipe/tasks-vision').FaceDetector> | null = null
-
-function getNativeDetector() {
-  if (nativeDetector !== undefined) return nativeDetector
-  const constructor = (globalThis as typeof globalThis & { FaceDetector?: NativeDetectorCtor }).FaceDetector
-  nativeDetector = constructor ? new constructor({ fastMode: true, maxDetectedFaces: 2 }) : null
-  return nativeDetector
-}
 
 async function getMediaPipeDetector() {
   if (!mediaPipeDetectorPromise) {
@@ -56,7 +46,6 @@ async function getMediaPipeDetector() {
 }
 
 export async function preloadFaceDetector() {
-  if (getNativeDetector()) return 'Browser face detector'
   await getMediaPipeDetector()
   return 'MediaPipe face detector'
 }
@@ -80,28 +69,14 @@ export function selectPrimaryFace(regions: FaceRegion[], width: number, height: 
 }
 
 export async function detectFaceRegions(source: HTMLCanvasElement): Promise<FaceRegion[]> {
-  const native = getNativeDetector()
-  if (native) {
-    try {
-      const results = await native.detect(source)
-      return results.flatMap((result) => result.boundingBox ? [{
-        x: result.boundingBox.x,
-        y: result.boundingBox.y,
-        width: result.boundingBox.width,
-        height: result.boundingBox.height,
-        confidence: 1,
-      }] : [])
-    } catch {
-      nativeDetector = null
-    }
-  }
-
   const detector = await getMediaPipeDetector()
   return detector.detect(source).detections.flatMap((detection) => {
     const box = detection.boundingBox
     if (!box) return []
     const rightEye = detection.keypoints[0]
     const leftEye = detection.keypoints[1]
+    const nose = detection.keypoints[2]
+    const mouth = detection.keypoints[3]
     return [{
       x: box.originX,
       y: box.originY,
@@ -110,6 +85,8 @@ export async function detectFaceRegions(source: HTMLCanvasElement): Promise<Face
       confidence: detection.categories[0]?.score ?? 0,
       leftEye: leftEye ? { x: leftEye.x * source.width, y: leftEye.y * source.height } : undefined,
       rightEye: rightEye ? { x: rightEye.x * source.width, y: rightEye.y * source.height } : undefined,
+      nose: nose ? { x: nose.x * source.width, y: nose.y * source.height } : undefined,
+      mouth: mouth ? { x: mouth.x * source.width, y: mouth.y * source.height } : undefined,
     }]
   })
 }

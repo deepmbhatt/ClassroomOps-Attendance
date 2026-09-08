@@ -5,7 +5,7 @@ import { cameraErrorMessage } from '../lib/camera'
 import { selectPrimaryFace } from '../lib/faceDetection'
 import { canTransitionEnrollment, isEnrollmentLocked } from '../lib/enrollmentState'
 import { previewImport } from '../lib/importValidation'
-import { averageEmbeddings, buildEmbeddingTemplate, cosineSimilarity, faceQualityLimits, templateSimilarity } from '../lib/faceEngine'
+import { averageEmbeddings, buildEmbeddingTemplate, computeSimilarityTransform, cosineSimilarity, faceQualityLimits, templateSimilarity } from '../lib/faceEngine'
 
 describe('enrollment state machine', () => {
   it('allows the intended happy path and rejects unsafe duplicate processing paths', () => {
@@ -66,6 +66,19 @@ describe('face selection', () => {
 })
 
 describe('face embedding decisions', () => {
+  it('computes a stable similarity transform for canonical face alignment', () => {
+    const transform = computeSimilarityTransform(
+      [{ x: 10, y: 10 }, { x: 30, y: 10 }, { x: 20, y: 30 }],
+      [{ x: 20, y: 20 }, { x: 60, y: 20 }, { x: 40, y: 60 }],
+    )
+    expect(transform?.a).toBeCloseTo(2, 6)
+    expect(transform?.b).toBeCloseTo(0, 6)
+    expect(transform?.c).toBeCloseTo(0, 6)
+    expect(transform?.d).toBeCloseTo(2, 6)
+    expect(transform?.e).toBeCloseTo(0, 6)
+    expect(transform?.f).toBeCloseTo(0, 6)
+  })
+
   it('normalizes averaged vectors and rejects incompatible dimensions', () => {
     const averaged = averageEmbeddings([[1, 0], [0.8, 0.2]])
     expect(Math.hypot(...averaged)).toBeCloseTo(1, 6)
