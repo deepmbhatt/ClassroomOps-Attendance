@@ -1,11 +1,11 @@
-<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="512" height="512" rx="84" fill="#102A3A"/>
-  <path d="M112 205V142C112 125.4 125.4 112 142 112H205" stroke="#55B6C8" stroke-width="28" stroke-linecap="round"/>
-  <path d="M307 112H370C386.6 112 400 125.4 400 142V205" stroke="#55B6C8" stroke-width="28" stroke-linecap="round"/>
-  <path d="M400 307V370C400 386.6 386.6 400 370 400H307" stroke="#55B6C8" stroke-width="28" stroke-linecap="round"/>
-  <path d="M205 400H142C125.4 400 112 386.6 112 370V307" stroke="#55B6C8" stroke-width="28" stroke-linecap="round"/>
-  <circle cx="246" cy="218" r="58" fill="#F4F8FA"/>
-  <path d="M146 354C156.7 299.3 194.7 272 246 272C297.3 272 335.3 299.3 346 354" fill="#F4F8FA"/>
-  <circle cx="348" cy="340" r="72" fill="#23815A" stroke="#102A3A" stroke-width="16"/>
-  <path d="M315 341L337 363L381 317" stroke="white" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">DS605 course mark</title>
+  <desc id="desc">An academic machine learning network mark in navy, white, and cyan.</desc>
+  <rect width="512" height="512" rx="72" fill="#0F1B2B"/>
+  <path d="M108 144v-36h72M404 144v-36h-72M108 368v36h72M404 368v36h-72" fill="none" stroke="#17AFC0" stroke-width="24" stroke-linecap="square"/>
+  <path d="M170 270l76-82 96 61M170 270l79 72 93-93M246 188l3 154" fill="none" stroke="#D8E4EA" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" opacity=".82"/>
+  <circle cx="170" cy="270" r="25" fill="#FFFFFF"/>
+  <circle cx="246" cy="188" r="25" fill="#17AFC0"/>
+  <circle cx="249" cy="342" r="25" fill="#FFFFFF"/>
+  <circle cx="342" cy="249" r="31" fill="#17AFC0" stroke="#FFFFFF" stroke-width="10"/>
 </svg>

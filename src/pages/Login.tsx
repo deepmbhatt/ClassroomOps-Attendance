@@ -45,20 +45,27 @@ export function Login() {
     }
   }
 
-  const title = mode === 'forgot' ? 'Recover your account' : mode === 'signup' ? 'Create student account' : 'Sign in to your portal'
+  const title = mode === 'forgot' ? 'Recover your account' : mode === 'signup' ? 'Create student account' : 'Sign in to DS605'
 
   return (
     <div className="login-page institutional-login">
       <section className="login-visual">
         <div className="brand big">
           <span className="brand-mark"><img src="/classroomops-logo.svg" alt="" /></span>
-          <div><strong>ClassroomOps</strong><small>Academic operations platform</small></div>
+          <div><strong>DS605</strong><small>Course portal</small></div>
         </div>
         <div className="login-copy-block">
-          <p className="eyebrow">Institutional portal</p>
-          <h1>Attendance and academic records, managed with clarity.</h1>
-          <p>A secure workspace for classroom sessions, student rosters, biometric enrollment, assessments, and record corrections.</p>
-          <div className="login-assurance"><ShieldCheck size={18} />Role-based access for administrators and students</div>
+          <p className="eyebrow">Academic course portal</p>
+          <h1>DS605</h1>
+          <p className="login-course-name">Fundamentals of Machine Learning</p>
+          <p>Sessions, attendance, assessments, and course notices in one focused workspace.</p>
+          <div className="login-assurance"><ShieldCheck size={18} />Authorized access for DS605 students and administrators</div>
+        </div>
+        <div className="ml-notation login-notation" aria-hidden="true">
+          <span>y&#770; = f<sub>&theta;</sub>(x)</span>
+          <span>min<sub>&theta;</sub> L(&theta;)</span>
+          <span>X &isin; R<sup>n&times;d</sup></span>
+          <span>&nabla;<sub>&theta;</sub>L</span>
         </div>
       </section>
 
@@ -66,7 +73,7 @@ export function Login() {
         <div>
           <p className="eyebrow">{mode === 'forgot' ? 'Account recovery' : mode === 'signup' ? 'Student registration' : 'Welcome back'}</p>
           <h2>{title}</h2>
-          <p className="muted-copy">{mode === 'login' ? 'Use your institutional email and password.' : mode === 'signup' ? 'All self-registered accounts are created as students.' : 'We will send a secure reset link to your email.'}</p>
+          <p className="muted-copy">{mode === 'login' ? 'Use your institutional email and password to continue.' : mode === 'signup' ? 'All self-registered accounts are created as students.' : 'We will send a secure reset link to your email.'}</p>
         </div>
 
         {mode === 'signup' ? <>

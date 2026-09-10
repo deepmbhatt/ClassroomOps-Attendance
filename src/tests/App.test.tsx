@@ -21,7 +21,7 @@ function renderApp(path = '/') {
 describe('App', () => {
   it('renders the admin dashboard in dev bypass mode', async () => {
     renderApp('/')
-    expect(await screen.findByText(/Good day, Administrator/i)).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /Fundamentals of Machine Learning/i })).toBeInTheDocument()
     expect(screen.getByText(/Faces ready/i)).toBeInTheDocument()
   })
 

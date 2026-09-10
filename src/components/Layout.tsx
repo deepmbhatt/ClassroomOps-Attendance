@@ -82,11 +82,11 @@ export function AppShell() {
       <button className={`sidebar-scrim ${menuOpen ? 'open' : ''}`} aria-label="Close navigation" onClick={() => setMenuOpen(false)} />
       <aside className={`sidebar ${menuOpen ? 'open' : ''}`}>
         <div className="sidebar-head">
-          <NavLink className="brand" to="/" aria-label="ClassroomOps home">
+          <NavLink className="brand" to="/" aria-label="DS605 home">
             <span className="brand-mark"><img src="/classroomops-logo.svg" alt="" /></span>
             <div>
-              <strong>ClassroomOps</strong>
-              <small>{auth.role === 'admin' ? 'Administration console' : 'Student portal'}</small>
+              <strong>DS605</strong>
+              <small>Fundamentals of Machine Learning</small>
             </div>
           </NavLink>
           <button className="mobile-close" aria-label="Close navigation" onClick={() => setMenuOpen(false)}><X size={20} /></button>
@@ -115,7 +115,7 @@ export function AppShell() {
       <div className="workspace">
         <header className="topbar">
           <button className="menu-button" aria-label="Open navigation" onClick={() => setMenuOpen(true)}><Menu size={21} /></button>
-          <div className="breadcrumb"><span>{auth.role === 'admin' ? 'Admin' : 'Student'}</span><ChevronRight size={14} /><strong>{routeNames[location.pathname] ?? 'ClassroomOps'}</strong></div>
+          <div className="breadcrumb"><span>{auth.role === 'admin' ? 'DS605 Admin' : 'DS605'}</span><ChevronRight size={14} /><strong>{routeNames[location.pathname] ?? 'Course portal'}</strong></div>
           <div className="topbar-account"><span className="online-dot" /><span>Online</span><span className="account-avatar small">{initials}</span></div>
         </header>
         <main className="page-content"><Outlet /></main>
