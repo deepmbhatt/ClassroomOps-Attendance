@@ -630,3 +630,58 @@ a.overview-item:hover { background: #f5fbfc; box-shadow: inset 0 -3px 0 var(--ac
   .login-notation span:nth-child(n+3) { display: none; }
   .login-card { width: min(430px, calc(100% - 2rem)); }
 }
+
+
+/* Login identity and explicit attendance session selection */
+.login-role-picker {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .25rem;
+  padding: .25rem;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #e9eef2;
+}
+.login-role-picker button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 750;
+}
+.login-role-picker button.active {
+  background: #fff;
+  color: var(--accent-dark);
+  box-shadow: 0 1px 3px rgb(15 27 43 / 12%);
+}
+.session-setup-controls {
+  grid-template-columns: minmax(210px, .9fr) minmax(160px, .55fr) minmax(280px, 1.2fr);
+}
+.selected-session-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .8rem;
+  margin: .8rem 0;
+  padding: .72rem .8rem;
+  border: 1px solid #bfe1e5;
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: #f3fbfc;
+}
+.selected-session-summary strong,
+.selected-session-summary small { display: block; }
+.selected-session-summary strong { font-size: .78rem; }
+.selected-session-summary small { margin-top: .18rem; font-size: .65rem; }
+.new-session-summary { border-color: var(--line); border-left-color: var(--muted); background: #f8fafb; }
+
+@media (max-width: 1180px) {
+  .session-setup-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .session-setup-controls { grid-template-columns: 1fr; }
+  .selected-session-summary { align-items: flex-start; flex-direction: column; }
+}

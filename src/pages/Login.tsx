@@ -9,6 +9,7 @@ export function Login() {
   const navigate = useNavigate()
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login')
   const [showPassword, setShowPassword] = useState(false)
+  const [loginRole, setLoginRole] = useState<'student' | 'admin'>('student')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
@@ -35,7 +36,7 @@ export function Login() {
           additionalInfo: String(form.get('additionalInfo')),
         })
       } else {
-        await auth.signIn(String(form.get('email')), String(form.get('password')))
+        await auth.signIn(String(form.get('email')), String(form.get('password')), String(form.get('studentId') ?? ''), loginRole)
       }
       navigate('/')
     } catch (nextError) {
@@ -86,6 +87,11 @@ export function Login() {
           <p className="muted-copy">Your phone number and additional information will be available to administrators for account verification.</p>
         </> : null}
 
+        {mode === 'login' ? <div className="login-role-picker" role="group" aria-label="Account type">
+          <button type="button" className={loginRole === 'student' ? 'active' : ''} aria-pressed={loginRole === 'student'} onClick={() => setLoginRole('student')}>Student</button>
+          <button type="button" className={loginRole === 'admin' ? 'active' : ''} aria-pressed={loginRole === 'admin'} onClick={() => setLoginRole('admin')}>Administrator</button>
+        </div> : null}
+        {mode === 'login' && loginRole === 'student' ? <label>Student ID<input name="studentId" autoComplete="username" required placeholder="Your university student ID" /></label> : null}
         <label>Institutional email<input name="email" type="email" autoComplete="email" required placeholder="name@college.edu" /></label>
         {mode !== 'forgot' ? <label>Password<span className="password-field"><input name="password" type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required minLength={8} placeholder="At least 8 characters" /><button type="button" title={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword((shown) => !shown)}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label> : null}
 

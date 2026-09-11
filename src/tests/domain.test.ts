@@ -3,6 +3,7 @@ import { canAcceptFaceConsensus, canAcceptFastFaceMatch, canInsertAttendance, en
 import { attendanceTone, effectiveAttendanceStatus, localDateKey } from '../lib/attendanceView'
 import { cameraErrorMessage } from '../lib/camera'
 import { selectPrimaryFace } from '../lib/faceDetection'
+import { recognitionAttendanceStatus, sessionStartForDate, sessionsForCourseDate } from '../lib/sessionSelection'
 import { canTransitionEnrollment, isEnrollmentLocked } from '../lib/enrollmentState'
 import { previewImport } from '../lib/importValidation'
 import { averageEmbeddings, buildEmbeddingTemplate, computeSimilarityTransform, cosineSimilarity, faceQualityLimits, parseEmbeddingVector, templateSimilarity } from '../lib/faceEngine'
@@ -164,5 +165,34 @@ describe('low-quality attendance tolerance', () => {
     expect(canAcceptFaceConsensus(0.38, 0.05, 2, 2, 0.363, 0.04)).toBe(true)
     expect(canAcceptFaceConsensus(0.35, 0.05, 2, 2, 0.363, 0.04)).toBe(false)
     expect(canAcceptFaceConsensus(0.35, 0.06, 3, 3, 0.363, 0.04)).toBe(true)
+  })
+})
+
+
+describe('attendance session selection', () => {
+  const sessions = [
+    { id: 's2', course_id: 'c1', course_code: 'DS605', title: 'Lab', started_at: '2026-09-11T14:00:00+05:30', status: 'closed' as const },
+    { id: 's1', course_id: 'c1', course_code: 'DS605', title: 'Lecture', started_at: '2026-09-11T09:00:00+05:30', status: 'active' as const },
+    { id: 's3', course_id: 'c2', course_code: 'DS606', title: 'Other', started_at: '2026-09-11T10:00:00+05:30', status: 'active' as const },
+  ]
+
+  it('lists every same-day course session in chronological order', () => {
+    expect(sessionsForCourseDate(sessions, 'c1', '2026-09-11').map((session) => session.id)).toEqual(['s1', 's2'])
+  })
+
+  it('creates a selected-date timestamp using the current local time', () => {
+    const result = new Date(sessionStartForDate('2026-09-10', new Date(2026, 8, 11, 15, 42, 8)))
+    expect(result.getFullYear()).toBe(2026)
+    expect(result.getMonth()).toBe(8)
+    expect(result.getDate()).toBe(10)
+    expect(result.getHours()).toBe(15)
+    expect(result.getMinutes()).toBe(42)
+  })
+
+  it('marks reopened closed-session arrivals late without replacing completed attendance', () => {
+    expect(recognitionAttendanceStatus('closed', 'absent')).toBe('late')
+    expect(recognitionAttendanceStatus('active', 'absent')).toBe('present')
+    expect(recognitionAttendanceStatus('closed', 'present')).toBeNull()
+    expect(recognitionAttendanceStatus('closed', 'late')).toBeNull()
   })
 })

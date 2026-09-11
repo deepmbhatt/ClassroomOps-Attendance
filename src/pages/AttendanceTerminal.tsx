@@ -4,10 +4,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Card, IconButton, OnlineGate, PageHeader, StatusPill } from '../components/Layout'
 import { closeLectureSession, createLectureSession, loadAppData, markAttendanceRecord } from '../lib/api'
-import { canAcceptFaceConsensus, canAcceptFastFaceMatch, canInsertAttendance, confidenceLabel } from '../lib/attendance'
+import { canAcceptFaceConsensus, canAcceptFastFaceMatch, confidenceLabel } from '../lib/attendance'
 import { attachCameraStream, listVideoInputs, requestCamera, stopCameraStream } from '../lib/camera'
 import { detectFaceRegions, preloadFaceDetector, refineFaceRegionLandmarks, selectPrimaryFace } from '../lib/faceDetection'
 import { createEmbeddingCandidatesFromCanvas, isEmbeddingCompatible, preloadFaceEngine, recommendedFaceMatchThreshold, templateSimilarity } from '../lib/faceEngine'
+import { localDateKey } from '../lib/attendanceView'
+import { NEW_SESSION_VALUE, recognitionAttendanceStatus, sessionStartForDate, sessionsForCourseDate } from '../lib/sessionSelection'
 import type { AppData } from '../lib/api'
 
 const configuredThreshold = Number(import.meta.env.VITE_FACE_MATCH_THRESHOLD ?? recommendedFaceMatchThreshold)
@@ -46,7 +48,9 @@ export function AttendanceTerminal() {
   const recentlyMarkedRef = useRef(new Set<string>())
   const recognitionRetryAfterRef = useRef(0)
   const [courseId, setCourseId] = useState('')
-  const [lectureId, setLectureId] = useState('')
+  const [sessionDate, setSessionDate] = useState(() => localDateKey(new Date()))
+  const [sessionSelection, setSessionSelection] = useState('')
+  const [createdLectureId, setCreatedLectureId] = useState('')
   const [sessionTitle, setSessionTitle] = useState('Lecture attendance')
   const [status, setStatus] = useState('Ready to start')
   const [error, setError] = useState('')
@@ -62,9 +66,14 @@ export function AttendanceTerminal() {
   })
 
   const course = data?.courses.find((item) => item.id === courseId) ?? data?.courses.find((item) => item.active) ?? data?.courses[0]
-  const activeLecture = data?.lectures.find((lecture) => lecture.id === lectureId)
-    ?? data?.lectures.find((lecture) => lecture.course_id === course?.id && lecture.status === 'active')
-  const effectiveLectureId = activeLecture?.id ?? lectureId
+  const sessionsOnSelectedDate = useMemo(
+    () => sessionsForCourseDate(data?.lectures ?? [], course?.id ?? '', sessionDate),
+    [course?.id, data?.lectures, sessionDate],
+  )
+  const selectedLecture = sessionSelection === NEW_SESSION_VALUE
+    ? data?.lectures.find((lecture) => lecture.id === createdLectureId)
+    : sessionsOnSelectedDate.find((lecture) => lecture.id === sessionSelection)
+  const effectiveLectureId = selectedLecture?.id ?? createdLectureId
   const courseStudentIds = useMemo(() => new Set((data?.courseMemberships ?? [])
     .filter((item) => item.course_id === course?.id && !item.deleted_at)
     .map((item) => item.student_id)), [course?.id, data?.courseMemberships])
@@ -105,17 +114,25 @@ export function AttendanceTerminal() {
   }, [])
 
   async function ensureSession() {
-    if (activeLecture?.id) {
-      currentLectureIdRef.current = activeLecture.id
-      return activeLecture.id
+    if (selectedLecture?.id) {
+      currentLectureIdRef.current = selectedLecture.id
+      return selectedLecture.id
     }
-    if (!course?.id) throw new Error('Create or select a course before starting attendance.')
+    if (createdLectureId) {
+      currentLectureIdRef.current = createdLectureId
+      return createdLectureId
+    }
+    if (!course?.id) throw new Error('Choose a course before starting attendance.')
+    if (sessionSelection !== NEW_SESSION_VALUE) throw new Error('Choose an existing session or create a new session first.')
+    const title = sessionTitle.trim()
+    if (!title) throw new Error('Enter a title for the new session.')
+
     const lecture = await createLectureSession({
       courseId: course.id,
-      title: sessionTitle.trim() || 'Lecture attendance',
-      startedAt: new Date().toISOString(),
+      title,
+      startedAt: sessionStartForDate(sessionDate),
     })
-    setLectureId(lecture.id)
+    setCreatedLectureId(lecture.id)
     currentLectureIdRef.current = lecture.id
     recentlyMarkedRef.current.clear()
     await queryClient.invalidateQueries({ queryKey: ['app-data'] })
@@ -125,6 +142,18 @@ export function AttendanceTerminal() {
   async function startCamera() {
     if (cameraRunning) return
     setError('')
+    if (!sessionSelection) {
+      setError('Choose an existing session or select Create new session before starting the camera.')
+      return
+    }
+    if (sessionSelection === NEW_SESSION_VALUE && !sessionTitle.trim()) {
+      setError('Enter a title for the new session before starting the camera.')
+      return
+    }
+    if (sessionSelection === NEW_SESSION_VALUE && !createdLectureId && sessionsOnSelectedDate.length > 0) {
+      const confirmed = window.confirm(`${sessionsOnSelectedDate.length} session${sessionsOnSelectedDate.length === 1 ? '' : 's'} already exist on this date. Create a separate new session?`)
+      if (!confirmed) return
+    }
     try {
       setStatus('Opening webcam...')
       const stream = await requestCamera(selectedDeviceId || undefined)
@@ -317,10 +346,12 @@ export function AttendanceTerminal() {
       const lecture = currentLectureIdRef.current
       const profile = latestStudents.find((student) => student.id === verifiedStudentId)
       const studentName = profile?.full_name ?? 'Student'
-      const alreadyStored = !canInsertAttendance(latestData?.attendance ?? [], lecture, verifiedStudentId)
-      if (alreadyStored || recentlyMarkedRef.current.has(verifiedStudentId)) {
+      const existingRecord = (latestData?.attendance ?? []).find((record) => record.lecture_id === lecture && record.student_id === verifiedStudentId)
+      const sessionStatus = latestData?.lectures.find((session) => session.id === lecture)?.status ?? selectedLecture?.status ?? 'active'
+      const attendanceStatus = recognitionAttendanceStatus(sessionStatus, existingRecord?.status)
+      if (!attendanceStatus || recentlyMarkedRef.current.has(verifiedStudentId)) {
         recognitionRetryAfterRef.current = Date.now() + 1800
-        setScanFeedback({ tone: 'success', title: studentName, detail: 'Already approved. Next student may proceed.' })
+        setScanFeedback({ tone: 'success', title: studentName, detail: 'Already approved for this session. Next student may proceed.' })
         return
       }
 
@@ -329,12 +360,12 @@ export function AttendanceTerminal() {
       await markAttendanceRecord({
         lectureId: lecture,
         studentId: verifiedStudentId,
-        status: 'present',
+        status: attendanceStatus,
         confidence: Number(verifiedScore.toFixed(4)),
         source: 'face',
-        reason: `Adaptive verification (${verifiedVotes}/${frameCandidates.length} votes), margin ${verifiedMargin.toFixed(3)}`,
+        reason: `${attendanceStatus === 'late' ? 'Late arrival in reopened session. ' : ''}Adaptive verification (${verifiedVotes}/${frameCandidates.length} votes), margin ${verifiedMargin.toFixed(3)}`,
       })
-      setScanFeedback({ tone: 'success', title: studentName, detail: `Approved. Attendance marked at ${Math.round(verifiedScore * 100)}%. Next student may proceed.` })
+      setScanFeedback({ tone: 'success', title: studentName, detail: `${attendanceStatus === 'late' ? 'Late attendance' : 'Attendance'} approved at ${Math.round(verifiedScore * 100)}%. Next student may proceed.` })
       await queryClient.invalidateQueries({ queryKey: ['app-data'] })
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Recognition failed.')
@@ -345,20 +376,27 @@ export function AttendanceTerminal() {
   }
 
   async function finishSession() {
-    const lecture = currentLectureIdRef.current || activeLecture?.id
+    const lecture = currentLectureIdRef.current || effectiveLectureId
     if (!lecture) {
       setError('Start a session before finalizing it.')
       return
     }
-    if (!window.confirm('Finish this scan? Students not recognized will be marked absent for review.')) return
+    const sessionIsClosed = (latestDataRef.current?.lectures ?? []).find((session) => session.id === lecture)?.status === 'closed'
+    if (!sessionIsClosed && !window.confirm('Finish this scan? Students not recognized will be marked absent for review.')) return
     setError('')
     try {
+      if (sessionIsClosed) {
+        stopCamera('Reopened session updated')
+        navigate('/admin/attendance-review')
+        return
+      }
       stopCamera('Finalizing attendance...')
       const absentCount = await closeLectureSession(lecture)
       await queryClient.invalidateQueries({ queryKey: ['app-data'] })
       setStatus(`Session finalized. ${absentCount} unmarked students set absent.`)
       currentLectureIdRef.current = ''
-      setLectureId('')
+      setSessionSelection('')
+      setCreatedLectureId('')
       navigate('/admin/attendance-review')
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Could not finalize attendance.')
@@ -375,11 +413,33 @@ export function AttendanceTerminal() {
         <div className="attendance-terminal-layout scan-only-layout">
           <Card className="terminal-camera-card">
             <div className="section-title"><div><p className="eyebrow">Live camera</p><h2>{status}</h2></div><Video size={20} /></div>
-            <div className="attendance-controls compact-controls">
-              <label>Course<select value={course?.id ?? ''} disabled={cameraRunning} onChange={(event) => setCourseId(event.target.value)}>{data?.courses.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.code} - {item.title}</option>)}</select></label>
-              <label>Session title<input value={sessionTitle} disabled={cameraRunning} onChange={(event) => setSessionTitle(event.target.value)} /></label>
+            <div className="attendance-controls compact-controls session-setup-controls">
+              <label>Course<select value={course?.id ?? ''} disabled={cameraRunning} onChange={(event) => {
+                setCourseId(event.target.value)
+                setSessionSelection('')
+                setCreatedLectureId('')
+              }}>{data?.courses.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.code} - {item.title}</option>)}</select></label>
+              <label>Date<input type="date" value={sessionDate} disabled={cameraRunning} onChange={(event) => {
+                setSessionDate(event.target.value)
+                setSessionSelection('')
+                setCreatedLectureId('')
+              }} /></label>
+              <label>Session<select value={sessionSelection} disabled={cameraRunning || !course?.id} onChange={(event) => {
+                setSessionSelection(event.target.value)
+                setCreatedLectureId('')
+                recentlyMarkedRef.current.clear()
+              }}>
+                <option value="">Choose a session</option>
+                {sessionsOnSelectedDate.map((session) => <option key={session.id} value={session.id}>{new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit' }).format(new Date(session.started_at))} - {session.title} ({session.status})</option>)}
+                <option value={NEW_SESSION_VALUE}>+ Create new session</option>
+              </select></label>
+              {sessionSelection === NEW_SESSION_VALUE ? <label>New session title<input value={sessionTitle} disabled={cameraRunning || Boolean(createdLectureId)} onChange={(event) => setSessionTitle(event.target.value)} /></label> : null}
               {devices.length > 1 ? <label>Camera<select value={selectedDeviceId} disabled={cameraRunning} onChange={(event) => setSelectedDeviceId(event.target.value)}>{devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}</select></label> : null}
             </div>
+            {selectedLecture ? <div className="selected-session-summary">
+              <span><strong>{selectedLecture.title}</strong><small>{new Intl.DateTimeFormat('en-IN', { weekday: 'long', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(selectedLecture.started_at))}</small></span>
+              <StatusPill tone={selectedLecture.status === 'closed' ? 'warn' : 'good'}>{selectedLecture.status === 'closed' ? 'Reopen for late arrivals' : 'Use active session'}</StatusPill>
+            </div> : sessionSelection === NEW_SESSION_VALUE ? <div className="selected-session-summary new-session-summary"><span><strong>New session</strong><small>A separate attendance register will be created for {sessionDate}.</small></span><StatusPill tone="neutral">Not created</StatusPill></div> : null}
             <div className="live-camera-stage">
               <video ref={videoRef} className={mirrored ? 'selfie-preview' : undefined} autoPlay playsInline muted />
               {cameraRunning ? <div className={`scan-feedback ${scanFeedback.tone}`} aria-live="polite">
@@ -395,24 +455,24 @@ export function AttendanceTerminal() {
               {error ? <span className="form-error">{error}</span> : null}
             </div>
             <div className="toolbar-actions">
-              <IconButton className="success" title="Start the camera and automatic recognition" disabled={cameraRunning} onClick={() => void startCamera()}><Play size={16} />Start scanning</IconButton>
+              <IconButton className="success" title="Start the camera for the selected session" disabled={cameraRunning || !sessionSelection || (sessionSelection === NEW_SESSION_VALUE && !sessionTitle.trim())} onClick={() => void startCamera()}><Play size={16} />Start selected session</IconButton>
               <IconButton title="Pause face scanning without finalizing attendance" disabled={!cameraRunning} onClick={() => stopCamera()}><Square size={16} />Pause</IconButton>
-              <IconButton className="primary" title="Finish scanning, mark remaining students absent, and open review" disabled={!effectiveLectureId} onClick={() => void finishSession()}><CheckCircle2 size={16} />Finish and review</IconButton>
+              <IconButton className="primary" title="Finish scanning, mark remaining students absent, and open review" disabled={!effectiveLectureId || (!cameraRunning && !currentLectureIdRef.current)} onClick={() => void finishSession()}><CheckCircle2 size={16} />Finish and review</IconButton>
             </div>
           </Card>
 
           <aside className="attendance-side-panel">
             <Card>
-              <div className="section-title"><div><p className="eyebrow">Recognized</p><h2>{records.filter((record) => record.status === 'present').length} / {students.length}</h2></div><ScanFace size={20} /></div>
+              <div className="section-title"><div><p className="eyebrow">Recognized</p><h2>{records.filter((record) => record.status === 'present' || record.status === 'late').length} / {students.length}</h2></div><ScanFace size={20} /></div>
               <div className="marked-list">
-                {records.filter((record) => record.status === 'present').map((record) => (
+                {records.filter((record) => record.status === 'present' || record.status === 'late').map((record) => (
                   <article key={record.id}>
                     <strong>{record.student_name}</strong>
-                    <StatusPill tone="good">present</StatusPill>
+                    <StatusPill tone={record.status === 'late' ? 'warn' : 'good'}>{record.status}</StatusPill>
                     <small>{confidenceLabel(record.confidence)} confidence</small>
                   </article>
                 ))}
-                {!records.some((record) => record.status === 'present') ? <p className="muted-copy">Recognized students will appear here immediately.</p> : null}
+                {!records.some((record) => record.status === 'present' || record.status === 'late') ? <p className="muted-copy">Recognized students will appear here immediately.</p> : null}
               </div>
               <Link className="icon-text review-link" title="Open the full date-based attendance register" to="/admin/attendance-review">Open attendance review</Link>
             </Card>

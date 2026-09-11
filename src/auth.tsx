@@ -16,7 +16,7 @@ interface AuthValue {
   mustChangePassword: boolean
   approvalStatus: 'pending' | 'approved' | 'rejected'
   signedIn: boolean
-  signIn(email: string, password: string): Promise<void>
+  signIn(email: string, password: string, studentId: string, expectedRole: Role): Promise<void>
   signUp(input: { email: string; password: string; fullName: string; studentId: string; phone: string; additionalInfo: string }): Promise<void>
   sendPasswordReset(email: string): Promise<void>
   updatePassword(password: string): Promise<void>
@@ -83,11 +83,32 @@ export function AuthProvider({ children }: PropsWithChildren) {
     mustChangePassword,
     approvalStatus,
     signedIn: devBypass || Boolean(session),
-    async signIn(email, password) {
-      if (devBypass) return
+    async signIn(email, password, studentId, expectedRole) {
+      if (devBypass) {
+        setRole(expectedRole)
+        return
+      }
       if (!supabase) throw new Error('Supabase is not configured')
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+      const normalizedEmail = email.trim().toLowerCase()
+      const normalizedStudentId = studentId.trim().toLowerCase()
+      if (expectedRole === 'student' && !normalizedStudentId) throw new Error('Student ID is required.')
+
+      const { data, error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password })
       if (error) throw error
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('role, student_id')
+        .eq('id', data.user.id)
+        .maybeSingle()
+      const identityMatches = profile
+        && profile.role === expectedRole
+        && (expectedRole === 'admin' || profile.student_id?.trim().toLowerCase() === normalizedStudentId)
+      if (profileError || !identityMatches) {
+        await supabase.auth.signOut()
+        setSession(null)
+        throw new Error('Email, student ID, or password is incorrect.')
+      }
+
       setSession(data.session)
       await loadProfileForUser(data.session?.user ?? null)
     },
@@ -97,13 +118,16 @@ export function AuthProvider({ children }: PropsWithChildren) {
         return
       }
       if (!supabase) throw new Error('Supabase is not configured')
+      const email = input.email.trim().toLowerCase()
+      const studentId = input.studentId.trim()
+      if (!studentId) throw new Error('Student ID is required.')
       const { error } = await supabase.auth.signUp({
-        email: input.email,
+        email,
         password: input.password,
         options: {
           data: {
             full_name: input.fullName,
-            student_id: input.studentId,
+            student_id: studentId,
             phone: input.phone,
             additional_info: input.additionalInfo,
           },
