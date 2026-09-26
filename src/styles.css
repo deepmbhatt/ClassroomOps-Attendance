@@ -455,3 +455,15 @@ main { min-width: 0; padding: 2.5rem clamp(1rem, 3vw, 3rem) 5rem; }
     min-width: 0;
   }
 }
+
+.historical-session-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(130px, 180px) auto auto;
+  gap: 0.75rem;
+  align-items: end;
+  margin-top: 1rem;
+}
+
+@media (max-width: 800px) {
+  .historical-session-row { grid-template-columns: 1fr; }
+}

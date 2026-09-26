@@ -63,7 +63,7 @@ export function previewStudentImport(text: string, existingStudents: KnownStuden
   const rows = parseCsv(text)
   const [header = [], ...body] = rows
   const headerMap = new Map(header.map((cell, index) => [normalizeHeader(cell), index]))
-  const required = ['student_id', 'full_name', 'email']
+  const required = ['student_id', 'full_name', 'email', 'phone']
   const existingByStudentId = new Set(existingStudents.map((student) => student.student_id).filter(Boolean))
   const existingByEmail = new Set(existingStudents.map((student) => student.email?.toLowerCase()).filter(Boolean))
   const seenStudentIds = new Set<string>()
@@ -88,6 +88,7 @@ export function previewStudentImport(text: string, existingStudents: KnownStuden
     if (!studentId) messages.push('Student ID is required')
     if (!fullName) messages.push('Full name is required')
     if (!/^\S+@\S+\.\S+$/.test(email)) messages.push('Valid email is required')
+    if (!phone) messages.push('Phone number is required')
     const isExisting = (studentId && existingByStudentId.has(studentId)) || (email && existingByEmail.has(email))
     if (!isExisting && (!temporaryPassword || temporaryPassword.length < 8)) messages.push('Temporary password must be at least 8 characters')
     if (studentId && seenStudentIds.has(studentId)) messages.push('Duplicate Student ID in file')

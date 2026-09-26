@@ -2,19 +2,19 @@ import { BookOpen, CheckCircle2, FileDown, FileSpreadsheet, Save, Search, Trash2
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChangeEvent, useMemo, useState } from 'react'
 import { Card, EmptyState, IconButton, PageHeader, SectionTabs, StatusPill } from '../components/Layout'
-import { approveStudentRegistration, bulkCreateStudents, loadAppData, rejectStudentRegistration, setStudentCourseCodes, syncMissingAuthProfiles, softDeleteCourse, softDeleteStudent, updateExistingStudents, updateStudentProfile, upsertCourse } from '../lib/api'
+import { approveStudentRegistration, bulkCreateStudents, loadAppData, setStudentCourseCodes, syncMissingAuthProfiles, softDeleteCourse, permanentlyDeleteStudent, setProfileRole, updateExistingStudents, updateStudentProfile, upsertCourse } from '../lib/api'
 import { parseCsv, previewStudentImport, readTabularFile } from '../lib/importValidation'
 import type { Course, Profile, StudentImportPreviewRow } from '../types'
 
-const studentCsvFormat = `Student ID,Full Name,Email,Phone,Additional Information,Course Codes,Temporary Password
-CSE001,Ananya Rao,ananya@college.edu,+91 90000 00001,AI division,CS601;CS642,Welcome@123
-CSE002,Rohan Mehta,rohan@college.edu,+91 90000 00002,Section B,CS601,Welcome@123`
+const studentCsvFormat = `Student ID,Full Name,Email,Phone,Course Codes,Temporary Password
+CSE001,Ananya Rao,ananya@college.edu,+91 90000 00001,CS601;CS642,Welcome@123
+CSE002,Rohan Mehta,rohan@college.edu,+91 90000 00002,CS601,Welcome@123`
 
 const courseCsvFormat = `Code,Title,Term,Active
 CS601,Machine Learning,2026-27 Semester 1,true
 CS642,Data Science Lab,2026-27 Semester 1,true`
 
-type EditableStudent = { fullName: string; studentId: string; email: string; phone: string; additionalInfo: string; courseCodes: string; mustChangePassword: boolean }
+type EditableStudent = { fullName: string; studentId: string; email: string; phone: string; courseCodes: string; mustChangePassword: boolean; role: 'student' | 'pseudo_admin' }
 type EditableCourse = { id?: string; code: string; title: string; term: string; active: boolean }
 
 export function AdminStudents() {
@@ -28,21 +28,22 @@ export function AdminStudents() {
   const [message, setMessage] = useState('')
   const [workspace, setWorkspace] = useState<'pending' | 'courses' | 'import' | 'directory'>('pending')
   const [studentEdits, setStudentEdits] = useState<Record<string, EditableStudent>>({})
-  const [approvalCsv, setApprovalCsv] = useState('Student ID,Full Name,Email,Phone,Additional Information,Course Codes\n')
+  const [approvalCsv, setApprovalCsv] = useState('Student ID,Full Name,Email,Phone,Course Codes\n')
   const [pendingCourseCodes, setPendingCourseCodes] = useState<Record<string, string>>({})
   const [approving, setApproving] = useState(false)
   const [courseEdits, setCourseEdits] = useState<Record<string, EditableCourse>>({})
 
   const courses = data?.courses ?? []
   const allStudents = useMemo(() => data?.profiles.filter((profile) => profile.role === 'student') ?? [], [data])
+  const delegatedAdmins = useMemo(() => data?.profiles.filter((profile) => profile.role === 'pseudo_admin') ?? [], [data])
   const pendingStudents = allStudents.filter((profile) => profile.approval_status === 'pending' && !profile.deleted_at)
-  const students = allStudents.filter((profile) => profile.approval_status !== 'pending' && profile.approval_status !== 'rejected' && !profile.deleted_at)
+  const students = useMemo(() => [...allStudents.filter((profile) => profile.approval_status !== 'pending' && profile.approval_status !== 'rejected' && !profile.deleted_at), ...delegatedAdmins.filter((profile) => !profile.deleted_at)], [allStudents, delegatedAdmins])
   const memberships = data?.courseMemberships ?? []
   const courseById = new Map(courses.map((course) => [course.id, course]))
 
   const filteredStudents = students.filter((student) => {
     const term = query.toLowerCase()
-    return [student.full_name, student.student_id, student.email, student.phone, student.additional_info].some((value) => value?.toLowerCase().includes(term))
+    return [student.full_name, student.student_id, student.email, student.phone, ].some((value) => value?.toLowerCase().includes(term))
   })
 
   const preview = useMemo(() => previewStudentImport(studentCsv, students.map((student) => ({
@@ -187,10 +188,10 @@ export function AdminStudents() {
   }
 
   async function rejectOne(student: Profile) {
-    if (!window.confirm(`Reject ${student.full_name}'s registration? The account will remain stored for audit and can be reviewed in Supabase.`)) return
+    if (!window.confirm(`Permanently delete ${student.full_name}'s pending registration? They will be able to register again with the same ID and email.`)) return
     try {
-      await rejectStudentRegistration(student.id)
-      setMessage(`${student.full_name}'s registration was rejected.`)
+      await permanentlyDeleteStudent(student.id)
+      setMessage(`${student.full_name}'s registration was permanently deleted.`)
       await queryClient.invalidateQueries({ queryKey: ['app-data'] })
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not reject registration')
@@ -199,8 +200,8 @@ export function AdminStudents() {
 
   function exportPending() {
     const rows = [
-      ['Student ID', 'Full Name', 'Email', 'Phone', 'Additional Information', 'Course Codes'],
-      ...pendingStudents.map((student) => [student.student_id ?? '', student.full_name, student.email, student.phone ?? '', student.additional_info ?? '', '']),
+      ['Student ID', 'Full Name', 'Email', 'Phone', 'Course Codes'],
+      ...pendingStudents.map((student) => [student.student_id ?? '', student.full_name, student.email, student.phone ?? '', '']),
     ]
     download('pending-student-registrations.csv', rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n'))
   }
@@ -229,17 +230,18 @@ export function AdminStudents() {
       studentId: student.student_id ?? '',
       email: student.email,
       phone: student.phone ?? '',
-      additionalInfo: student.additional_info ?? '',
       courseCodes: studentCourses(student.id),
       mustChangePassword: Boolean(student.must_change_password),
+      role: student.role === 'pseudo_admin' ? 'pseudo_admin' : 'student',
     }
   }
 
   async function saveStudent(student: Profile) {
     const edit = editFor(student)
     try {
-      await updateStudentProfile({ id: student.id, studentId: edit.studentId, fullName: edit.fullName, email: edit.email, phone: edit.phone, additionalInfo: edit.additionalInfo, mustChangePassword: edit.mustChangePassword })
-      await setStudentCourseCodes(student.id, edit.courseCodes.split(/[;,|]/))
+      await updateStudentProfile({ id: student.id, studentId: edit.studentId, fullName: edit.fullName, email: edit.email, phone: edit.phone, mustChangePassword: edit.mustChangePassword })
+      await setProfileRole(student.id, edit.role)
+      if (edit.role === 'student') await setStudentCourseCodes(student.id, edit.courseCodes.split(/[;,|]/))
       setMessage(`${edit.fullName} updated.`)
       setStudentEdits((edits) => {
         const next = { ...edits }
@@ -253,9 +255,9 @@ export function AdminStudents() {
   }
 
   async function removeStudent(student: Profile) {
-    if (!window.confirm(`Remove ${student.full_name} from active student lists?`)) return
-    await softDeleteStudent(student.id)
-    setMessage('Student removed from active lists.')
+    if (!window.confirm(`PERMANENTLY delete ${student.full_name}? This removes authentication, face images, attendance, marks, issues, and the profile. The student can register again afterward.`)) return
+    await permanentlyDeleteStudent(student.id)
+    setMessage('Student account and all linked data were permanently deleted.')
     await queryClient.invalidateQueries({ queryKey: ['app-data'] })
   }
 
@@ -335,7 +337,7 @@ export function AdminStudents() {
         <Card>
           <div className="section-title"><div><p className="eyebrow">Self registrations</p><h2>{pendingStudents.length} awaiting review</h2></div><StatusPill tone={pendingStudents.length ? 'warn' : 'good'}>{pendingStudents.length ? 'Action needed' : 'Queue clear'}</StatusPill></div>
           {pendingStudents.length ? <div className="table-scroll"><table className="editable-table">
-            <thead><tr><th>Registered student</th><th>Student ID</th><th>Email / phone</th><th>Additional information</th><th>Roster comparison</th><th>Assign course codes</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Registered student</th><th>Student ID</th><th>Email / phone</th><th>Roster comparison</th><th>Assign course codes</th><th>Actions</th></tr></thead>
             <tbody>{pendingStudents.map((student) => {
               const match = approvalMatch(student)
               const idMatch = match?.studentId === student.student_id
@@ -344,10 +346,10 @@ export function AdminStudents() {
                 <td><strong>{student.full_name}</strong><br /><small>{student.created_at ? new Date(student.created_at).toLocaleString('en-IN') : 'Self registered'}</small></td>
                 <td><strong>{student.student_id}</strong></td>
                 <td>{student.email}<br /><small>{student.phone ?? 'No phone'}</small></td>
-                <td>{student.additional_info || <small>No additional information</small>}</td>
+
                 <td><StatusPill tone={match ? 'good' : 'warn'}>{idMatch ? 'Student ID match' : emailMatch ? 'Email match' : 'Not in uploaded roster'}</StatusPill></td>
                 <td><input value={approvalCourses(student)} onChange={(event) => setPendingCourseCodes({ ...pendingCourseCodes, [student.id]: event.target.value })} placeholder="CS601;CS642" /></td>
-                <td><div className="row-actions"><button title="Approve and assign courses" disabled={approving} onClick={() => void approveOne(student)}><CheckCircle2 size={15} /></button><button title="Reject registration" disabled={approving} onClick={() => void rejectOne(student)}><XCircle size={15} /></button></div></td>
+                <td><div className="row-actions"><button title="Approve and assign courses" disabled={approving} onClick={() => void approveOne(student)}><CheckCircle2 size={15} /></button><button title="Permanently delete registration" disabled={approving} onClick={() => void rejectOne(student)}><XCircle size={15} /></button></div></td>
               </tr>
             })}</tbody>
           </table></div> : <EmptyState title="No pending registrations" body="New self-registered students will appear here automatically." icon={<UserRoundCheck size={22} />} />}
@@ -387,7 +389,7 @@ export function AdminStudents() {
       {workspace === 'import' ? <div className="two-column import-layout">
         <Card>
           <div className="section-title"><div><p className="eyebrow">Roster upload</p><h2>Create new and update existing</h2></div><Upload size={20} /></div>
-          <div className="format-box"><code>Student ID</code><code>Full Name</code><code>Email</code><code>Phone</code><code>Additional Information</code><code>Course Codes</code><code>Temporary Password</code></div>
+          <div className="format-box"><code>Student ID</code><code>Full Name</code><code>Email</code><code>Phone</code><code>Course Codes</code><code>Temporary Password</code></div>
           <p className="muted-copy">Upload `.xlsx`, `.xls`, or `.csv`. Existing students are updated in place. New students are created with the temporary password and must change it at first login.</p>
           <label className="file-picker" title="Choose an Excel or CSV roster file"><Upload size={17} />Upload students Excel/CSV<input type="file" accept=".csv,.xlsx,.xls,text/csv" onChange={(event) => void readStudentFile(event)} /></label>
           {studentFileName ? <p className="file-summary"><FileSpreadsheet size={16} />{studentFileName}</p> : null}
@@ -399,9 +401,9 @@ export function AdminStudents() {
 
         <Card>
           <div className="section-title"><div><p className="eyebrow">Preview</p><h2>Rows from file</h2></div><StatusPill tone="neutral">{preview.importId.slice(0, 8)}</StatusPill></div>
-          <div className="table-scroll"><table><thead><tr><th>Row</th><th>Student</th><th>Email / phone</th><th>Additional information</th><th>Courses</th><th>Mode</th><th>Status</th></tr></thead><tbody>{preview.rows.map((row: StudentImportPreviewRow) => {
+          <div className="table-scroll"><table><thead><tr><th>Row</th><th>Student</th><th>Email / phone</th><th>Courses</th><th>Mode</th><th>Status</th></tr></thead><tbody>{preview.rows.map((row: StudentImportPreviewRow) => {
             const exists = students.some((student) => student.student_id === row.studentId || student.email.toLowerCase() === row.email.toLowerCase())
-            return <tr key={row.rowNumber} className={row.status === 'error' ? 'error-row' : undefined}><td>{row.rowNumber}</td><td><b>{row.studentId}</b><br /><small>{row.fullName}</small></td><td>{row.email}<br /><small>{row.phone || 'No phone'}</small></td><td>{row.additionalInfo || '-'}</td><td>{row.courseCodes.join(', ') || '-'}</td><td>{exists ? 'update' : 'create'}</td><td><StatusPill tone={row.status === 'valid' ? 'good' : 'danger'}>{row.messages.join(', ') || 'ready'}</StatusPill></td></tr>
+            return <tr key={row.rowNumber} className={row.status === 'error' ? 'error-row' : undefined}><td>{row.rowNumber}</td><td><b>{row.studentId}</b><br /><small>{row.fullName}</small></td><td>{row.email}<br /><small>{row.phone || 'No phone'}</small></td><td>{row.courseCodes.join(', ') || '-'}</td><td>{exists ? 'update' : 'create'}</td><td><StatusPill tone={row.status === 'valid' ? 'good' : 'danger'}>{row.messages.join(', ') || 'ready'}</StatusPill></td></tr>
           })}</tbody></table></div>
         </Card>
       </div> : null}
@@ -413,7 +415,7 @@ export function AdminStudents() {
         </div>
         <div className="table-scroll">
           <table className="editable-table">
-            <thead><tr><th>Name</th><th>Student ID</th><th>Email</th><th>Phone</th><th>Additional information</th><th>Courses</th><th>Force password change</th><th>Face</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Name</th><th>Student ID</th><th>Email</th><th>Phone</th><th>Role</th><th>Courses</th><th>Force password change</th><th>Face</th><th>Actions</th></tr></thead>
             <tbody>{filteredStudents.map((student) => {
               const edit = editFor(student)
               const enrollment = data?.enrollments.find((item) => item.student_id === student.id)
@@ -422,11 +424,12 @@ export function AdminStudents() {
                 <td><input value={edit.studentId} onChange={(event) => setStudentEdits({ ...studentEdits, [student.id]: { ...edit, studentId: event.target.value } })} /></td>
                 <td><input value={edit.email} onChange={(event) => setStudentEdits({ ...studentEdits, [student.id]: { ...edit, email: event.target.value } })} /></td>
                 <td><input value={edit.phone} onChange={(event) => setStudentEdits({ ...studentEdits, [student.id]: { ...edit, phone: event.target.value } })} /></td>
-                <td><input value={edit.additionalInfo} onChange={(event) => setStudentEdits({ ...studentEdits, [student.id]: { ...edit, additionalInfo: event.target.value } })} placeholder="Optional details" /></td>
+
+                <td><select value={edit.role} onChange={(event) => setStudentEdits({ ...studentEdits, [student.id]: { ...edit, role: event.target.value as 'student' | 'pseudo_admin' } })}><option value="student">Student</option><option value="pseudo_admin">Pseudo admin</option></select></td>
                 <td><input value={edit.courseCodes} onChange={(event) => setStudentEdits({ ...studentEdits, [student.id]: { ...edit, courseCodes: event.target.value } })} placeholder="CS601;CS642" /></td>
                 <td><input className="checkbox-input" type="checkbox" checked={edit.mustChangePassword} onChange={(event) => setStudentEdits({ ...studentEdits, [student.id]: { ...edit, mustChangePassword: event.target.checked } })} /></td>
                 <td><StatusPill tone={enrollment?.state === 'ready' ? 'good' : 'warn'}>{enrollment?.state ?? 'not started'}</StatusPill></td>
-                <td><div className="row-actions"><button title="Save" onClick={() => void saveStudent(student)}><Save size={15} /></button><button title="Remove" onClick={() => void removeStudent(student)}><Trash2 size={15} /></button></div></td>
+                <td><div className="row-actions"><button title="Save" onClick={() => void saveStudent(student)}><Save size={15} /></button><button title="Permanently delete account and all data" onClick={() => void removeStudent(student)}><Trash2 size={15} /></button></div></td>
               </tr>
             })}</tbody>
           </table>

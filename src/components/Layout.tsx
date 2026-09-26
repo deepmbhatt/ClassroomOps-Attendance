@@ -39,6 +39,12 @@ const adminGroups = [
   },
 ] as const
 
+const pseudoAdminGroups = [
+  { label: 'Overview', links: [['/', 'Dashboard', Gauge]] },
+  { label: 'Academics', links: [['/admin/marks', 'Assessments & marks', FileSpreadsheet], ['/admin/issues', 'Student requests', MessageSquareWarning]] },
+  { label: 'Attendance', links: [['/admin/attendance', 'Live terminal', Camera], ['/admin/attendance-review', 'Attendance review', ClipboardCheck], ['/admin/biometrics', 'Face enrollments', ShieldCheck], ['/admin/audit', 'Audit history', History]] },
+] as const
+
 const studentGroups = [
   {
     label: 'My academics',
@@ -70,9 +76,9 @@ const routeNames: Record<string, string> = {
 export function AppShell() {
   const auth = useAuth()
   const location = useLocation()
-  const groups = auth.role === 'admin' ? adminGroups : studentGroups
+  const groups = auth.role === 'admin' ? adminGroups : auth.role === 'pseudo_admin' ? pseudoAdminGroups : studentGroups
   const [menuOpen, setMenuOpen] = useState(false)
-  const email = auth.session?.user.email ?? (auth.role === 'admin' ? 'Administrator' : 'Student')
+  const email = auth.session?.user.email ?? (auth.role === 'admin' ? 'Administrator' : auth.role === 'pseudo_admin' ? 'Attendance staff' : 'Student')
   const initials = email.slice(0, 2).toUpperCase()
 
   useEffect(() => setMenuOpen(false), [location.pathname])
@@ -106,7 +112,7 @@ export function AppShell() {
         <div className="sidebar-foot">
           <div className="account-summary">
             <span className="account-avatar">{initials}</span>
-            <span><strong>{auth.role === 'admin' ? 'Administrator' : 'Student account'}</strong><small>{email}</small></span>
+            <span><strong>{auth.role === 'admin' ? 'Administrator' : auth.role === 'pseudo_admin' ? 'Attendance staff' : 'Student account'}</strong><small>{email}</small></span>
           </div>
           <NavLink className="sidebar-action" to="/change-password"><KeyRound size={16} /><span>Account security</span></NavLink>
           <button className="sidebar-action" onClick={() => void auth.signOut()}><LogOut size={16} /><span>Sign out</span></button>
@@ -115,7 +121,7 @@ export function AppShell() {
       <div className="workspace">
         <header className="topbar">
           <button className="menu-button" aria-label="Open navigation" onClick={() => setMenuOpen(true)}><Menu size={21} /></button>
-          <div className="breadcrumb"><span>{auth.role === 'admin' ? 'DS605 Admin' : 'DS605'}</span><ChevronRight size={14} /><strong>{routeNames[location.pathname] ?? 'Course portal'}</strong></div>
+          <div className="breadcrumb"><span>{auth.role === 'student' ? 'DS605' : auth.role === 'admin' ? 'DS605 Admin' : 'DS605 Staff'}</span><ChevronRight size={14} /><strong>{routeNames[location.pathname] ?? 'Course portal'}</strong></div>
           <div className="topbar-account"><span className="online-dot" /><span>Online</span><span className="account-avatar small">{initials}</span></div>
         </header>
         <main className="page-content"><Outlet /></main>

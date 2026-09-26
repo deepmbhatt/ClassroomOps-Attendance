@@ -9,7 +9,6 @@ export function Login() {
   const navigate = useNavigate()
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login')
   const [showPassword, setShowPassword] = useState(false)
-  const [loginRole, setLoginRole] = useState<'student' | 'admin'>('student')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
@@ -33,10 +32,9 @@ export function Login() {
           fullName: String(form.get('fullName')),
           studentId: String(form.get('studentId')),
           phone: String(form.get('phone')),
-          additionalInfo: String(form.get('additionalInfo')),
         })
       } else {
-        await auth.signIn(String(form.get('email')), String(form.get('password')), String(form.get('studentId') ?? ''), loginRole)
+        await auth.signIn(String(form.get('identifier')), String(form.get('password')))
       }
       navigate('/')
     } catch (nextError) {
@@ -83,16 +81,10 @@ export function Login() {
             <label>Student ID<input name="studentId" required placeholder="CSE001" /></label>
             <label>Phone<input name="phone" autoComplete="tel" required placeholder="+91 90000 00000" /></label>
           </div>
-          <label>Additional information <small>(optional)</small><textarea name="additionalInfo" placeholder="Department, section, alternate contact, or anything else the administrator should know" /></label>
-          <p className="muted-copy">Your phone number and additional information will be available to administrators for account verification.</p>
+          <p className="muted-copy">Name, student ID, phone number, institutional email, and password are the only registration details required.</p>
         </> : null}
 
-        {mode === 'login' ? <div className="login-role-picker" role="group" aria-label="Account type">
-          <button type="button" className={loginRole === 'student' ? 'active' : ''} aria-pressed={loginRole === 'student'} onClick={() => setLoginRole('student')}>Student</button>
-          <button type="button" className={loginRole === 'admin' ? 'active' : ''} aria-pressed={loginRole === 'admin'} onClick={() => setLoginRole('admin')}>Administrator</button>
-        </div> : null}
-        {mode === 'login' && loginRole === 'student' ? <label>Student ID<input name="studentId" autoComplete="username" required placeholder="Your university student ID" /></label> : null}
-        <label>Institutional email<input name="email" type="email" autoComplete="email" required placeholder="name@college.edu" /></label>
+        {mode === 'login' ? <label>Student ID or institutional email<input name="identifier" autoComplete="username" required placeholder="CSE001 or name@college.edu" /></label> : <label>Institutional email<input name="email" type="email" autoComplete="email" required placeholder="name@college.edu" /></label>}
         {mode !== 'forgot' ? <label>Password<span className="password-field"><input name="password" type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required minLength={8} placeholder="At least 8 characters" /><button type="button" title={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword((shown) => !shown)}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label> : null}
 
         {!supabaseConfigured && !devBypass ? <p className="form-error">Deployment configuration is incomplete. Add the Supabase URL and anon key, then redeploy.</p> : null}

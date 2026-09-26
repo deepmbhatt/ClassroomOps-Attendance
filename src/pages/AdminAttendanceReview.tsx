@@ -2,10 +2,11 @@ import { Download, FileDown, Save, Trash2, Upload } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChangeEvent, useEffect, useMemo, useState } from 'react'
 import { Card, EmptyState, IconButton, PageHeader, Spinner, StatusPill } from '../components/Layout'
-import { deleteAttendanceRecord, loadAppData, markAttendanceRecords } from '../lib/api'
+import { createLectureSession, deleteAttendanceRecord, deleteLectureSession, loadAppData, markAttendanceRecords } from '../lib/api'
 import { attendanceTone, localDateKey } from '../lib/attendanceView'
 import { parseCsv, readTabularFile } from '../lib/importValidation'
 import { normalizeAttendanceStatus } from '../lib/attendance'
+import { useAuth } from '../auth'
 import type { AttendanceStatus } from '../types'
 
 interface AttendanceEdit {
@@ -27,6 +28,7 @@ function toLocalDateTime(value?: string) {
 
 export function AdminAttendanceReview() {
   const queryClient = useQueryClient()
+  const auth = useAuth()
   const { data, isLoading } = useQuery({ queryKey: ['app-data'], queryFn: loadAppData })
   const [date, setDate] = useState(() => localDateKey(new Date()))
   const [courseId, setCourseId] = useState('')
@@ -35,6 +37,8 @@ export function AdminAttendanceReview() {
   const [fileName, setFileName] = useState('')
   const [message, setMessage] = useState('')
   const [saving, setSaving] = useState(false)
+  const [historicalTitle, setHistoricalTitle] = useState('Historical class')
+  const [historicalTime, setHistoricalTime] = useState('09:00')
 
   const sessions = useMemo(() => (data?.lectures ?? [])
     .filter((session) => localDateKey(session.started_at) === date && (!courseId || session.course_id === courseId))
@@ -88,6 +92,7 @@ export function AdminAttendanceReview() {
           status: edit.status as AttendanceStatus,
           reason: edit.reason || 'Updated during attendance review',
           markedAt: new Date(edit.markedAt).toISOString(),
+          source: fileName ? 'import' : 'manual',
         }
       }))
       setEdits({})
@@ -115,6 +120,46 @@ export function AdminAttendanceReview() {
       await queryClient.invalidateQueries({ queryKey: ['app-data'] })
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Attendance status could not be removed.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function createHistoricalSession() {
+    const selectedCourseId = courseId || data?.courses[0]?.id
+    if (!selectedCourseId || !date || !historicalTime || !historicalTitle.trim()) {
+      setMessage('Choose a course, date, time, and session title.')
+      return
+    }
+    setSaving(true)
+    try {
+      const created = await createLectureSession({
+        courseId: selectedCourseId,
+        title: historicalTitle.trim(),
+        startedAt: new Date(`${date}T${historicalTime}:00`).toISOString(),
+      })
+      await queryClient.invalidateQueries({ queryKey: ['app-data'] })
+      setCourseId(selectedCourseId)
+      setLectureId(created.id)
+      setMessage('Historical session created. Upload the old attendance file below.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not create historical session.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function removeSession() {
+    if (!selectedSession || auth.role !== 'admin') return
+    if (!window.confirm(`Permanently delete "${selectedSession.title}" and every attendance record in it?`)) return
+    setSaving(true)
+    try {
+      await deleteLectureSession(selectedSession.id)
+      setLectureId('')
+      setMessage('Session and all of its attendance records were deleted.')
+      await queryClient.invalidateQueries({ queryKey: ['app-data'] })
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Session could not be deleted.')
     } finally {
       setSaving(false)
     }
@@ -189,8 +234,14 @@ export function AdminAttendanceReview() {
           <label>Course<select value={courseId} onChange={(event) => setCourseId(event.target.value)}><option value="">All courses</option>{data.courses.map((course) => <option key={course.id} value={course.id}>{course.code} - {course.title}</option>)}</select></label>
           <label>Session<select value={selectedSession?.id ?? ''} onChange={(event) => setLectureId(event.target.value)} disabled={!sessions.length}>{sessions.map((session) => <option key={session.id} value={session.id}>{new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit' }).format(new Date(session.started_at))} - {session.course_code} - {session.title}</option>)}</select></label>
         </div>
+        <div className="historical-session-row">
+          <label>Historical session title<input value={historicalTitle} onChange={(event) => setHistoricalTitle(event.target.value)} placeholder="Lecture 1" /></label>
+          <label>Start time<input type="time" value={historicalTime} onChange={(event) => setHistoricalTime(event.target.value)} /></label>
+          <IconButton onClick={() => void createHistoricalSession()} disabled={saving || !data.courses.length}>Create historical session</IconButton>
+          {auth.role === 'admin' ? <IconButton className="danger-button" onClick={() => void removeSession()} disabled={saving || !selectedSession}><Trash2 size={16} />Delete selected session</IconButton> : null}
+        </div>
         <div className="upload-row">
-          <label className="file-picker" title="Load Excel or CSV values into the sheet before saving"><Upload size={17} />Load Excel/CSV<input type="file" accept=".csv,.xlsx,.xls,text/csv" onChange={(event) => void readFile(event)} disabled={!selectedSession} /></label>
+          <label className="file-picker" title="Load Excel or CSV values into the sheet before saving"><Upload size={17} />Load old attendance Excel/CSV<input type="file" accept=".csv,.xlsx,.xls,text/csv" onChange={(event) => void readFile(event)} disabled={!selectedSession} /></label>
           <IconButton title="Download the required attendance file columns" onClick={downloadFormat}><FileDown size={16} />Format</IconButton>
           {fileName ? <span className="file-name">{fileName}</span> : null}
         </div>

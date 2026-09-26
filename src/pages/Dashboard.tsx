@@ -21,16 +21,16 @@ import { confidenceLabel } from '../lib/attendance'
 
 export function Dashboard() {
   const auth = useAuth()
-  const query = useQuery({ queryKey: ['app-data'], queryFn: loadAppData, refetchInterval: auth.role === 'admin' ? 15000 : false })
+  const query = useQuery({ queryKey: ['app-data'], queryFn: loadAppData, refetchInterval: auth.role !== 'student' ? 15000 : false })
   if (query.isLoading) return <Spinner />
   if (query.isError) return <EmptyState title="Could not load the portal" body={query.error instanceof Error ? query.error.message : 'Refresh the page and try again.'} />
   if (!query.data) return null
-  return auth.role === 'admin'
-    ? <AdminDashboard data={query.data} />
+  return auth.role !== 'student'
+    ? <AdminDashboard data={query.data} canManageStudents={auth.role === 'admin'} />
     : <StudentDashboard data={query.data} studentId={auth.session?.user.id} />
 }
 
-function AdminDashboard({ data }: { data: Awaited<ReturnType<typeof loadAppData>> }) {
+function AdminDashboard({ data, canManageStudents }: { data: Awaited<ReturnType<typeof loadAppData>>; canManageStudents: boolean }) {
   const students = data.profiles.filter((profile) => profile.role === 'student' && profile.approval_status !== 'pending' && profile.approval_status !== 'rejected' && !profile.deleted_at)
   const pendingRegistrations = data.profiles.filter((profile) => profile.role === 'student' && profile.approval_status === 'pending' && !profile.deleted_at).length
   const pending = data.enrollments.filter((item) => item.state === 'queued' || item.state === 'processing').length
@@ -42,7 +42,7 @@ function AdminDashboard({ data }: { data: Awaited<ReturnType<typeof loadAppData>
 
   const shortcuts = [
     { to: '/admin/attendance', label: 'Start attendance', detail: 'Open the live recognition terminal', icon: <Camera size={18} /> },
-    { to: '/admin/students', label: 'Review students', detail: pendingRegistrations ? `${pendingRegistrations} registrations waiting` : 'Add courses, import or edit students', icon: <Users size={18} /> },
+    ...(canManageStudents ? [{ to: '/admin/students', label: 'Review students', detail: 'Manage registrations, courses, and accounts', icon: <Users size={18} /> }] : []),
     { to: '/admin/marks', label: 'Update marks', detail: 'Create assessments and publish results', icon: <FileSpreadsheet size={18} /> },
     { to: '/admin/biometrics', label: 'Process faces', detail: pending ? `${pending} enrollment jobs are waiting` : 'All enrollment jobs are clear', icon: <ShieldCheck size={18} /> },
   ]

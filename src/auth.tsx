@@ -16,8 +16,8 @@ interface AuthValue {
   mustChangePassword: boolean
   approvalStatus: 'pending' | 'approved' | 'rejected'
   signedIn: boolean
-  signIn(email: string, password: string, studentId: string, expectedRole: Role): Promise<void>
-  signUp(input: { email: string; password: string; fullName: string; studentId: string; phone: string; additionalInfo: string }): Promise<void>
+  signIn(identifier: string, password: string): Promise<void>
+  signUp(input: { email: string; password: string; fullName: string; studentId: string; phone: string }): Promise<void>
   sendPasswordReset(email: string): Promise<void>
   updatePassword(password: string): Promise<void>
   signOut(): Promise<void>
@@ -47,9 +47,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
       .maybeSingle()
 
     if (error) throw error
-    setRole(data?.role === 'admin' ? 'admin' : 'student')
+    setRole(data?.role === 'admin' ? 'admin' : data?.role === 'pseudo_admin' ? 'pseudo_admin' : 'student')
     setMustChangePassword(Boolean(data?.must_change_password))
-    setApprovalStatus(data?.role === 'admin' ? 'approved' : data?.approval_status === 'approved' ? 'approved' : data?.approval_status === 'rejected' ? 'rejected' : 'pending')
+    setApprovalStatus(data?.role === 'student' ? (data?.approval_status === 'approved' ? 'approved' : data?.approval_status === 'rejected' ? 'rejected' : 'pending') : 'approved')
   }
 
   useEffect(() => {
@@ -83,32 +83,33 @@ export function AuthProvider({ children }: PropsWithChildren) {
     mustChangePassword,
     approvalStatus,
     signedIn: devBypass || Boolean(session),
-    async signIn(email, password, studentId, expectedRole) {
+    async signIn(identifier, password) {
       if (devBypass) {
-        setRole(expectedRole)
+        setRole('admin')
         return
       }
       if (!supabase) throw new Error('Supabase is not configured')
-      const normalizedEmail = email.trim().toLowerCase()
-      const normalizedStudentId = studentId.trim().toLowerCase()
-      if (expectedRole === 'student' && !normalizedStudentId) throw new Error('Student ID is required.')
-
-      const { data, error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password })
+      const normalizedIdentifier = identifier.trim().toLowerCase()
+      if (!normalizedIdentifier) throw new Error('Student ID or institutional email is required.')
+      let loginEmail = normalizedIdentifier
+      if (!normalizedIdentifier.includes('@')) {
+        const { data: resolvedEmail, error: resolveError } = await supabase.rpc('resolve_login_email', { p_identifier: normalizedIdentifier })
+        if (resolveError) throw new Error('Student ID login is not enabled yet. Apply the latest database migration.')
+        if (!resolvedEmail) throw new Error('Student ID or password is incorrect.')
+        loginEmail = String(resolvedEmail)
+      }
+      const { data, error } = await supabase.auth.signInWithPassword({ email: loginEmail, password })
       if (error) throw error
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('role, student_id')
+        .select('role, deleted_at')
         .eq('id', data.user.id)
         .maybeSingle()
-      const identityMatches = profile
-        && profile.role === expectedRole
-        && (expectedRole === 'admin' || profile.student_id?.trim().toLowerCase() === normalizedStudentId)
-      if (profileError || !identityMatches) {
+      if (profileError || !profile || profile.deleted_at) {
         await supabase.auth.signOut()
         setSession(null)
-        throw new Error('Email, student ID, or password is incorrect.')
+        throw new Error('This account is unavailable. Ask an administrator for help.')
       }
-
       setSession(data.session)
       await loadProfileForUser(data.session?.user ?? null)
     },
@@ -120,20 +121,26 @@ export function AuthProvider({ children }: PropsWithChildren) {
       if (!supabase) throw new Error('Supabase is not configured')
       const email = input.email.trim().toLowerCase()
       const studentId = input.studentId.trim()
-      if (!studentId) throw new Error('Student ID is required.')
+      const fullName = input.fullName.trim()
+      const phone = input.phone.trim()
+      if (!studentId || !fullName || !phone || !email) throw new Error('Name, student ID, phone number, and institutional email are required.')
       const { error } = await supabase.auth.signUp({
         email,
         password: input.password,
         options: {
           data: {
-            full_name: input.fullName,
+            full_name: fullName,
             student_id: studentId,
-            phone: input.phone,
-            additional_info: input.additionalInfo,
+            phone,
           },
         },
       })
-      if (error) throw error
+      if (error) {
+        const message = /database error/i.test(error.message)
+          ? 'That student ID or email is already registered. If an old account should be removed, ask the administrator to permanently delete it first.'
+          : error.message
+        throw new Error(message)
+      }
       setRole('student')
     },
     async sendPasswordReset(email) {

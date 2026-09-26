@@ -296,3 +296,24 @@ This repository includes `supabase/RESET_STUDENT_DATA_KEEP_ADMINS.sql` for a gua
 Before running it, empty the private `face-frames` bucket from the Supabase Storage dashboard. Then open the SQL file, verify the expected admin email, and run the whole file in the Supabase SQL Editor.
 
 Student registration now stores phone and optional additional information. Migration `202609020001_add_student_additional_info.sql` adds the profile field and updates signup/profile-recovery triggers. Administrators can view and search these values in Pending Approvals and Student Directory.
+
+## 11. September 2026 Administration Upgrade
+
+For an existing Supabase project, apply all pending migrations in order:
+
+```bash
+supabase db push
+```
+
+Then deploy both account-management Edge Functions:
+
+```bash
+supabase functions deploy bulk-create-students
+supabase functions deploy delete-student
+```
+
+The `delete-student` function uses `SUPABASE_SERVICE_ROLE_KEY` only inside Supabase. It permanently removes a student's private face objects, linked application records, profile, and Auth user so the same email and student ID can register again.
+
+Administrators can grant or revoke the **Pseudo admin** role from **Courses & students → Student directory**. Pseudo admins can run attendance, process queued face enrollments, manage marks, handle requests, and read audit history. Database policies prevent them from approving, deleting, importing, or editing students and courses.
+
+Historical attendance is available from **Attendance review**: choose the old date and course, create a historical session, upload CSV/Excel by Student ID, review the staged rows, and save. Only a full administrator sees the destructive whole-session delete control.

@@ -16,3 +16,5 @@ playwright.config.d.ts
 # Local update packages
 classroomops-*-update/
 classroomops-*.tar.gz
+
+supabase/.temp/

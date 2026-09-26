@@ -29,9 +29,9 @@ function Protected() {
   return <AppShell />
 }
 
-function RequireRole({ role, children }: { role: 'admin' | 'student'; children: React.ReactNode }) {
+function RequireRole({ roles, children }: { roles: Array<'admin' | 'pseudo_admin' | 'student'>; children: React.ReactNode }) {
   const auth = useAuth()
-  if (auth.role !== role) return <Navigate to="/" replace />
+  if (!roles.includes(auth.role)) return <Navigate to="/" replace />
   return <>{children}</>
 }
 
@@ -44,16 +44,16 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/pending-approval" element={<PendingApproval />} />
-        <Route path="/admin/students" element={<RequireRole role="admin"><AdminStudents /></RequireRole>} />
-        <Route path="/admin/biometrics" element={<RequireRole role="admin"><BiometricProcessing /></RequireRole>} />
-        <Route path="/admin/attendance" element={<RequireRole role="admin"><AttendanceTerminal /></RequireRole>} />
-        <Route path="/admin/attendance-review" element={<RequireRole role="admin"><AdminAttendanceReview /></RequireRole>} />
-        <Route path="/admin/marks" element={<RequireRole role="admin"><MarksImports /></RequireRole>} />
-        <Route path="/admin/issues" element={<RequireRole role="admin"><Issues /></RequireRole>} />
-        <Route path="/admin/audit" element={<RequireRole role="admin"><Audit /></RequireRole>} />
-        <Route path="/student/face" element={<RequireRole role="student"><FaceRegistration /></RequireRole>} />
-        <Route path="/student/attendance" element={<RequireRole role="student"><StudentAttendance /></RequireRole>} />
-        <Route path="/student/issues" element={<RequireRole role="student"><Issues /></RequireRole>} />
+        <Route path="/admin/students" element={<RequireRole roles={['admin']}><AdminStudents /></RequireRole>} />
+        <Route path="/admin/biometrics" element={<RequireRole roles={['admin', 'pseudo_admin']}><BiometricProcessing /></RequireRole>} />
+        <Route path="/admin/attendance" element={<RequireRole roles={['admin', 'pseudo_admin']}><AttendanceTerminal /></RequireRole>} />
+        <Route path="/admin/attendance-review" element={<RequireRole roles={['admin', 'pseudo_admin']}><AdminAttendanceReview /></RequireRole>} />
+        <Route path="/admin/marks" element={<RequireRole roles={['admin', 'pseudo_admin']}><MarksImports /></RequireRole>} />
+        <Route path="/admin/issues" element={<RequireRole roles={['admin', 'pseudo_admin']}><Issues /></RequireRole>} />
+        <Route path="/admin/audit" element={<RequireRole roles={['admin', 'pseudo_admin']}><Audit /></RequireRole>} />
+        <Route path="/student/face" element={<RequireRole roles={['student']}><FaceRegistration /></RequireRole>} />
+        <Route path="/student/attendance" element={<RequireRole roles={['student']}><StudentAttendance /></RequireRole>} />
+        <Route path="/student/issues" element={<RequireRole roles={['student']}><Issues /></RequireRole>} />
       </Route>
     </Routes>
   )

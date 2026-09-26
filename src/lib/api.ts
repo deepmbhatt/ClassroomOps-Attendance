@@ -427,6 +427,7 @@ export async function markAttendanceRecords(inputs: Array<{
   lectureId: string
   studentId: string
   status: 'present' | 'absent' | 'late' | 'excused' | 'manual_review'
+  source?: 'manual' | 'import'
   reason?: string
   markedAt?: string
 }>) {
@@ -438,7 +439,7 @@ export async function markAttendanceRecords(inputs: Array<{
     student_id: input.studentId,
     status: input.status,
     confidence: null,
-    source: 'manual',
+    source: input.source ?? 'manual',
     reason: input.reason ?? 'Updated during attendance review',
     marked_by: userData.user?.id ?? null,
     marked_at: input.markedAt ?? new Date().toISOString(),
@@ -668,4 +669,31 @@ export async function syncMissingAuthProfiles() {
   const { data, error } = await supabase.rpc('sync_missing_auth_profiles')
   if (error) throw error
   return Number(data ?? 0)
+}
+
+export async function permanentlyDeleteStudent(studentId: string) {
+  if (devBypass) return
+  const supabase = requireSupabase()
+  const { data, error } = await supabase.functions.invoke('delete-student', {
+    body: { studentId },
+  })
+  if (error) throw error
+  if (data?.error) throw new Error(data.error)
+}
+
+export async function deleteLectureSession(lectureId: string) {
+  if (devBypass) return
+  const supabase = requireSupabase()
+  const { error } = await supabase.from('lecture_sessions').delete().eq('id', lectureId)
+  if (error) throw error
+}
+
+export async function setProfileRole(profileId: string, role: 'student' | 'pseudo_admin') {
+  if (devBypass) return
+  const supabase = requireSupabase()
+  const { error } = await supabase.rpc('set_delegated_role', {
+    p_profile_id: profileId,
+    p_role: role,
+  })
+  if (error) throw error
 }

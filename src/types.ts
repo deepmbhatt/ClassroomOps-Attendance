@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'student'
+export type Role = 'admin' | 'pseudo_admin' | 'student'
 
 export type EnrollmentState =
   | 'not_started'
