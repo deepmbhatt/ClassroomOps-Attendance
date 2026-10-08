@@ -185,7 +185,7 @@ export function previewImport(
 
   const previewRows: ImportPreviewRow[] = body.map((row, index) => {
     const studentId = getCell(row, headerMap, ['student_id', 'roll_no', 'roll_number', 'enrollment_no'])
-    const value = getCell(row, headerMap, ['status', 'attendance'])
+    const value = getCell(row, headerMap, ['status', 'attendance', 'attendance_status'])
     const known = byId.get(studentId)
     const messages: string[] = []
 

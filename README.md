@@ -317,3 +317,35 @@ The `delete-student` function uses `SUPABASE_SERVICE_ROLE_KEY` only inside Supab
 Administrators can grant or revoke the **Pseudo admin** role from **Courses & students → Student directory**. Pseudo admins can run attendance, process queued face enrollments, manage marks, handle requests, and read audit history. Database policies prevent them from approving, deleting, importing, or editing students and courses.
 
 Historical attendance is available from **Attendance review**: choose the old date and course, create a historical session, upload CSV/Excel by Student ID, review the staged rows, and save. Only a full administrator sees the destructive whole-session delete control.
+
+## 12. Single-Session Security And Secure Exam Gateway
+
+Apply the new migration before deploying the frontend:
+
+```bash
+supabase db push
+supabase functions deploy bulk-create-students
+supabase functions deploy delete-student
+```
+
+### Single active device
+
+A successful login claims the account for that browser/device and revokes other Supabase refresh sessions. Existing app sessions check ownership every 15 seconds and whenever the window regains focus. A replaced session is signed out with an explanatory message. The device key is also attached to database requests; protected exam-code verification and link release reject a replaced session server-side.
+
+### Exam workflow
+
+1. Staff creates an exam gateway and links it to the face-attendance session.
+2. Staff downloads the Master roster CSV, fills each student's `Individual Exam Link`, and uploads it under **Exam access**.
+3. Missing `Verification Code` and `Expected Exit Code` values are generated in the browser. Staff must download and securely retain the prepared file before saving.
+4. **Approve Exam Access** succeeds only for `present`/`late` attendance whose source is `face`.
+5. Approved students see **My exam access**, enter their individual code, and receive the protected Unstop URL only after the server verifies the code and exam window.
+6. The exit instruction appears at `Exit instruction release`, normally five minutes before closing.
+7. After Unstop submission, add exported responses to `Submitted Exit Code` in the same prepared CSV and upload it under **Exit review**. Incorrect codes are marked `manual_review`; they never automatically assign zero marks.
+
+The individual URL and code hashes live in the staff-only `exam_access_secrets` table. Students cannot retrieve the URL through ordinary data queries before successful verification.
+
+### One master spreadsheet
+
+`classroomops-master-roster.csv` is downloadable from Courses & students, Attendance review, Marks, and Exam access. Keep `Student ID` as the stable key and fill only the columns needed by the current page. Extra columns are ignored safely.
+
+Because this file can contain passwords, exam links, and verification codes, store it securely and do not commit completed copies to Git.

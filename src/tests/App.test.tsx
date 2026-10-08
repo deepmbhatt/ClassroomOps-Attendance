@@ -25,6 +25,12 @@ describe('App', () => {
     expect(screen.getByText(/Faces ready/i)).toBeInTheDocument()
   })
 
+  it('renders the secure exam administration page', async () => {
+    renderApp('/admin/exams')
+    expect(await screen.findByRole('heading', { name: /Exam access control/i })).toBeInTheDocument()
+    expect(screen.getByText(/face-verified attendance/i)).toBeInTheDocument()
+  })
+
   it('renders the biometric processing page', async () => {
     renderApp('/admin/biometrics')
     expect(await screen.findByText(/Biometric processing/i)).toBeInTheDocument()

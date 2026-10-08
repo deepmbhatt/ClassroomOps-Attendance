@@ -89,6 +89,7 @@ export function Login() {
 
         {!supabaseConfigured && !devBypass ? <p className="form-error">Deployment configuration is incomplete. Add the Supabase URL and anon key, then redeploy.</p> : null}
         {error ? <p className="form-error">{error}</p> : null}
+        {auth.sessionMessage ? <p className="form-error">{auth.sessionMessage}</p> : null}
         {message ? <p className="notice"><Mail size={16} />{message}</p> : null}
 
         <button className="icon-text primary" type="submit" disabled={pending}>

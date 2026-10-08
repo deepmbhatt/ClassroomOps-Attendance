@@ -6,6 +6,7 @@ import { createLectureSession, deleteAttendanceRecord, deleteLectureSession, loa
 import { attendanceTone, localDateKey } from '../lib/attendanceView'
 import { parseCsv, readTabularFile } from '../lib/importValidation'
 import { normalizeAttendanceStatus } from '../lib/attendance'
+import { buildMasterRosterCsv, downloadTextFile } from '../lib/masterRoster'
 import { useAuth } from '../auth'
 import type { AttendanceStatus } from '../types'
 
@@ -174,7 +175,7 @@ export function AdminAttendanceReview() {
       const [header = [], ...rows] = parseCsv(await readTabularFile(file))
       const normalized = header.map((cell) => cell.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_'))
       const studentIndex = normalized.indexOf('student_id')
-      const statusIndex = normalized.indexOf('status')
+      const statusIndex = normalized.includes('status') ? normalized.indexOf('status') : normalized.indexOf('attendance_status')
       const markedAtIndex = normalized.indexOf('marked_at')
       const reasonIndex = normalized.indexOf('reason')
       if (studentIndex < 0 || statusIndex < 0) throw new Error('File must include Student ID and Status columns.')
@@ -242,7 +243,8 @@ export function AdminAttendanceReview() {
         </div>
         <div className="upload-row">
           <label className="file-picker" title="Load Excel or CSV values into the sheet before saving"><Upload size={17} />Load old attendance Excel/CSV<input type="file" accept=".csv,.xlsx,.xls,text/csv" onChange={(event) => void readFile(event)} disabled={!selectedSession} /></label>
-          <IconButton title="Download the required attendance file columns" onClick={downloadFormat}><FileDown size={16} />Format</IconButton>
+          <IconButton title="Download one roster usable for attendance, marks, students, and exams" onClick={() => downloadTextFile('classroomops-master-roster.csv', buildMasterRosterCsv(data.profiles, data.courseMemberships, data.courses))}><FileDown size={16} />Master roster</IconButton>
+          <IconButton title="Download the minimal attendance columns" onClick={downloadFormat}><FileDown size={16} />Attendance format</IconButton>
           {fileName ? <span className="file-name">{fileName}</span> : null}
         </div>
       </Card>

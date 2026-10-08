@@ -210,3 +210,40 @@ export interface StudentImportPreviewRow {
   status: 'valid' | 'error'
   messages: string[]
 }
+
+
+export type ExamStatus = 'draft' | 'open' | 'closed'
+export type ExitReviewStatus = 'pending' | 'matched' | 'manual_review'
+
+export interface Exam {
+  id: string
+  course_id: string
+  course_code: string
+  attendance_session_id?: string
+  title: string
+  instructions?: string
+  exit_instruction?: string
+  starts_at?: string
+  ends_at?: string
+  exit_release_at?: string
+  status: ExamStatus
+  created_at: string
+}
+
+export interface ExamAccess {
+  id: string
+  exam_id: string
+  student_id: string
+  student_name: string
+  student_identifier?: string
+  verification_code_hint?: string
+  exit_code_hint?: string
+  attendance_record_id?: string
+  approved_at?: string
+  approved_by?: string
+  code_verified_at?: string
+  link_opened_at?: string
+  exit_review_status: ExitReviewStatus
+  exit_checked_at?: string
+  notes?: string
+}

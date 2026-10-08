@@ -467,3 +467,46 @@ main { min-width: 0; padding: 2.5rem clamp(1rem, 3vw, 3rem) 5rem; }
 @media (max-width: 800px) {
   .historical-session-row { grid-template-columns: 1fr; }
 }
+
+.exam-selector-card {
+  display: flex;
+  align-items: end;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.exam-selector-card label { flex: 1; }
+.exam-form-grid { margin-bottom: 1rem; }
+.exam-access-list { display: grid; gap: 1rem; }
+.student-exam-card { display: grid; gap: 1rem; }
+.exam-chain { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.exam-chain span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.4rem 0.7rem;
+  color: var(--muted);
+}
+.exam-chain span.complete { color: var(--accent-2); border-color: color-mix(in srgb, var(--accent-2) 45%, var(--line)); }
+.exam-code-form { display: flex; align-items: end; gap: 0.75rem; max-width: 620px; }
+.exam-code-form label { flex: 1; }
+.exam-link-button { width: fit-content; text-decoration: none; }
+.exam-link-button.disabled { opacity: 0.5; pointer-events: none; }
+.exit-instruction {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  border: 1px dashed var(--line);
+  border-radius: 0.8rem;
+  padding: 0.9rem;
+  color: var(--muted);
+}
+.exit-instruction p { margin: 0.25rem 0 0; }
+.exit-instruction.released { border-style: solid; border-color: var(--warn); color: var(--ink); background: color-mix(in srgb, var(--warn) 8%, transparent); }
+.truncate-cell { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .exam-selector-card, .exam-code-form { align-items: stretch; flex-direction: column; }
+}

@@ -4,6 +4,7 @@ import { ChangeEvent, useMemo, useState } from 'react'
 import { Card, EmptyState, IconButton, PageHeader, SectionTabs, StatusPill } from '../components/Layout'
 import { deleteMark, loadAppData, upsertAssessment, upsertMarks } from '../lib/api'
 import { previewAssessmentMarksImport, readTabularFile, rowsToMarks } from '../lib/importValidation'
+import { buildMasterRosterCsv, downloadTextFile } from '../lib/masterRoster'
 import type { Assessment } from '../types'
 
 const marksCsvFormat = `Student ID,Marks,Remarks
@@ -136,7 +137,7 @@ export function MarksImports() {
 
   return (
     <>
-      <PageHeader eyebrow="Academic records" title="Assessment marks manager" action={<IconButton className="primary" onClick={downloadFormat}><FileDown size={16} />Format</IconButton>}>
+      <PageHeader eyebrow="Academic records" title="Assessment marks manager" action={<><IconButton onClick={() => data && downloadTextFile('classroomops-master-roster.csv', buildMasterRosterCsv(data.profiles, data.courseMemberships, data.courses))}><FileDown size={16} />Master roster</IconButton><IconButton className="primary" onClick={downloadFormat}><FileDown size={16} />Marks format</IconButton></>}>
         Create assessments whenever needed, upload Excel/CSV marks, and edit the marks sheet directly.
       </PageHeader>
 

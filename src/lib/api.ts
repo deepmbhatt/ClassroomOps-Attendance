@@ -7,6 +7,8 @@ import type {
   CourseMembership,
   FaceEmbedding,
   FaceEnrollment,
+  Exam,
+  ExamAccess,
   LectureSession,
   Mark,
   MarkBreakdown,
@@ -41,6 +43,8 @@ export interface AppData {
   issues: StudentIssue[]
   announcements: Announcement[]
   auditLogs: AuditLog[]
+  exams: Exam[]
+  examAccess: ExamAccess[]
 }
 
 export async function loadAppData(): Promise<AppData> {
@@ -62,6 +66,8 @@ export async function loadAppData(): Promise<AppData> {
     issues,
     announcements,
     auditLogs,
+    exams,
+    examAccess,
   ] = await Promise.all([
     supabase.from('profiles').select('*'),
     supabase.from('courses').select('*'),
@@ -77,9 +83,11 @@ export async function loadAppData(): Promise<AppData> {
     supabase.from('student_issues').select('*'),
     supabase.from('announcements').select('*'),
     supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(100),
+    supabase.from('exams').select('*').order('created_at', { ascending: false }),
+    supabase.from('exam_access').select('*').order('created_at'),
   ])
 
-  for (const result of [profiles, courses, courseMemberships, enrollments, embeddings, lectures, attendance, assessments, marks, markComponents, markComponentScores, issues, announcements, auditLogs]) {
+  for (const result of [profiles, courses, courseMemberships, enrollments, embeddings, lectures, attendance, assessments, marks, markComponents, markComponentScores, issues, announcements, auditLogs, exams, examAccess]) {
     if (result.error) throw result.error
   }
 
@@ -137,6 +145,8 @@ export async function loadAppData(): Promise<AppData> {
     issues: (issues.data ?? []).map((issue) => ({ ...issue, student_name: profileById.get(issue.student_id)?.full_name ?? 'Student' })),
     announcements: (announcements.data ?? []).map((announcement) => ({ ...announcement, course_code: announcement.course_id ? courseById.get(announcement.course_id)?.code ?? 'Course' : 'All courses' })),
     auditLogs: (auditLogs.data ?? []).map((log) => ({ ...log, actor_name: profileById.get(log.actor_id)?.full_name ?? 'System' })),
+    exams: (exams.data ?? []).map((exam) => ({ ...exam, course_code: courseById.get(exam.course_id)?.code ?? 'Course' })) as Exam[],
+    examAccess: (examAccess.data ?? []).map((access) => ({ ...access, student_name: profileById.get(access.student_id)?.full_name ?? 'Student', student_identifier: profileById.get(access.student_id)?.student_id })) as ExamAccess[],
   }
 }
 
@@ -156,6 +166,8 @@ export function loadDemoData(): AppData {
     issues: [],
     announcements: demoAnnouncements,
     auditLogs: [],
+    exams: [],
+    examAccess: [],
   }
 }
 
@@ -696,4 +708,96 @@ export async function setProfileRole(profileId: string, role: 'student' | 'pseud
     p_role: role,
   })
   if (error) throw error
+}
+
+
+export async function upsertExam(input: {
+  id?: string
+  courseId: string
+  attendanceSessionId?: string
+  title: string
+  instructions?: string
+  exitInstruction?: string
+  startsAt?: string
+  endsAt?: string
+  exitReleaseAt?: string
+  status: 'draft' | 'open' | 'closed'
+}) {
+  if (devBypass) return { id: input.id ?? 'exam-demo' }
+  const supabase = requireSupabase()
+  const { data: userData } = await supabase.auth.getUser()
+  const { data, error } = await supabase.from('exams').upsert({
+    ...(input.id ? { id: input.id } : {}),
+    course_id: input.courseId,
+    attendance_session_id: input.attendanceSessionId || null,
+    title: input.title.trim(),
+    instructions: input.instructions?.trim() || null,
+    exit_instruction: input.exitInstruction?.trim() || null,
+    starts_at: input.startsAt || null,
+    ends_at: input.endsAt || null,
+    exit_release_at: input.exitReleaseAt || null,
+    status: input.status,
+    created_by: userData.user?.id ?? null,
+  }).select('id').single()
+  if (error) throw error
+  return data as { id: string }
+}
+
+export async function deleteExam(examId: string) {
+  if (devBypass) return
+  const supabase = requireSupabase()
+  const { error } = await supabase.from('exams').delete().eq('id', examId)
+  if (error) throw error
+}
+
+export async function upsertExamAccess(input: { examId: string; studentId: string; url: string; verificationCode: string; expectedExitCode?: string }) {
+  if (devBypass) return 'exam-access-demo'
+  const supabase = requireSupabase()
+  const { data, error } = await supabase.rpc('upsert_exam_access', {
+    p_exam_id: input.examId,
+    p_student_identifier: input.studentId,
+    p_individual_url: input.url,
+    p_verification_code: input.verificationCode,
+    p_expected_exit_code: input.expectedExitCode || null,
+  })
+  if (error) throw error
+  return String(data)
+}
+
+export async function approveExamAccess(accessId: string) {
+  if (devBypass) return
+  const supabase = requireSupabase()
+  const { error } = await supabase.rpc('approve_exam_access', { p_access_id: accessId })
+  if (error) throw error
+}
+
+export async function revokeExamAccess(accessId: string) {
+  if (devBypass) return
+  const supabase = requireSupabase()
+  const { error } = await supabase.rpc('revoke_exam_access', { p_access_id: accessId })
+  if (error) throw error
+}
+
+export async function verifyExamAccessCode(accessId: string, code: string) {
+  if (devBypass) return true
+  const supabase = requireSupabase()
+  const { data, error } = await supabase.rpc('verify_exam_access_code', { p_access_id: accessId, p_code: code })
+  if (error) throw error
+  return Boolean(data)
+}
+
+export async function recordExamLinkOpened(accessId: string) {
+  if (devBypass) return 'https://unstop.com'
+  const supabase = requireSupabase()
+  const { data, error } = await supabase.rpc('record_exam_link_opened', { p_access_id: accessId })
+  if (error) throw error
+  return String(data)
+}
+
+export async function reviewExamExitCode(accessId: string, submittedCode: string) {
+  if (devBypass) return 'matched' as const
+  const supabase = requireSupabase()
+  const { data, error } = await supabase.rpc('review_exam_exit_code', { p_access_id: accessId, p_submitted_code: submittedCode })
+  if (error) throw error
+  return data as 'matched' | 'manual_review'
 }

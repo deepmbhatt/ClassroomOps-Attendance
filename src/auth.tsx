@@ -7,7 +7,7 @@ import {
 } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import type { Role } from './types'
-import { devBypass, supabase } from './lib/supabase'
+import { appDeviceLabel, appSessionKey, devBypass, supabase } from './lib/supabase'
 
 interface AuthValue {
   ready: boolean
@@ -16,6 +16,7 @@ interface AuthValue {
   mustChangePassword: boolean
   approvalStatus: 'pending' | 'approved' | 'rejected'
   signedIn: boolean
+  sessionMessage: string
   signIn(identifier: string, password: string): Promise<void>
   signUp(input: { email: string; password: string; fullName: string; studentId: string; phone: string }): Promise<void>
   sendPasswordReset(email: string): Promise<void>
@@ -31,6 +32,26 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [mustChangePassword, setMustChangePassword] = useState(false)
   const [approvalStatus, setApprovalStatus] = useState<'pending' | 'approved' | 'rejected'>(devBypass ? 'approved' : 'pending')
   const [ready, setReady] = useState(devBypass)
+  const [sessionMessage, setSessionMessage] = useState('')
+
+  async function claimCurrentDeviceSession() {
+    if (!supabase || devBypass) return
+    const { error } = await supabase.rpc('claim_app_session', {
+      p_session_key: appSessionKey(),
+      p_device_label: appDeviceLabel(),
+    })
+    if (error) throw new Error('Single-session security is not ready. Apply the latest database migration.')
+  }
+
+  async function currentDeviceSessionIsValid() {
+    if (!supabase || devBypass) return true
+    const { data, error } = await supabase.rpc('check_or_register_app_session', {
+      p_session_key: appSessionKey(),
+      p_device_label: appDeviceLabel(),
+    })
+    if (error) throw error
+    return Boolean(data)
+  }
 
   async function loadProfileForUser(user: User | null) {
     if (devBypass || !supabase || !user) {
@@ -63,7 +84,16 @@ export function AuthProvider({ children }: PropsWithChildren) {
       .getSession()
       .then(({ data }) => {
         setSession(data.session)
-        return loadProfileForUser(data.session?.user ?? null)
+        if (!data.session?.user) return loadProfileForUser(null)
+        return currentDeviceSessionIsValid().then(async (valid) => {
+          if (!valid) {
+            await supabase?.auth.signOut({ scope: 'local' })
+            setSession(null)
+            setSessionMessage('You were signed out because this account was opened on another device.')
+            return
+          }
+          return loadProfileForUser(data.session?.user ?? null)
+        })
       })
       .finally(() => setReady(true))
 
@@ -76,6 +106,33 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return () => data.subscription.unsubscribe()
   }, [])
 
+  useEffect(() => {
+    if (!session?.user || !supabase || devBypass) return
+    const authClient = supabase
+    let stopped = false
+    const check = async () => {
+      try {
+        const valid = await currentDeviceSessionIsValid()
+        if (!valid && !stopped) {
+          stopped = true
+          await authClient.auth.signOut({ scope: 'local' })
+          setSession(null)
+          setSessionMessage('You were signed out because this account was opened on another device.')
+        }
+      } catch {
+        // A temporary network failure must not sign a student out during an exam.
+      }
+    }
+    const timer = window.setInterval(() => void check(), 15_000)
+    const onFocus = () => void check()
+    window.addEventListener('focus', onFocus)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [session?.user])
+
   const value: AuthValue = {
     ready,
     session,
@@ -83,6 +140,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     mustChangePassword,
     approvalStatus,
     signedIn: devBypass || Boolean(session),
+    sessionMessage,
     async signIn(identifier, password) {
       if (devBypass) {
         setRole('admin')
@@ -110,6 +168,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
         setSession(null)
         throw new Error('This account is unavailable. Ask an administrator for help.')
       }
+      await claimCurrentDeviceSession()
+      await supabase.auth.signOut({ scope: 'others' })
+      setSessionMessage('')
       setSession(data.session)
       await loadProfileForUser(data.session?.user ?? null)
     },
@@ -169,7 +230,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setMustChangePassword(false)
     },
     async signOut() {
-      if (supabase && !devBypass) await supabase.auth.signOut()
+      if (supabase && !devBypass) {
+        await supabase.rpc('release_app_session', { p_session_key: appSessionKey() })
+        await supabase.auth.signOut()
+      }
       setSession(null)
       setRole(devBypass ? 'admin' : 'student')
       setMustChangePassword(false)

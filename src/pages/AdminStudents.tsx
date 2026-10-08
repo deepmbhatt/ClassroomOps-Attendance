@@ -4,6 +4,7 @@ import { ChangeEvent, useMemo, useState } from 'react'
 import { Card, EmptyState, IconButton, PageHeader, SectionTabs, StatusPill } from '../components/Layout'
 import { approveStudentRegistration, bulkCreateStudents, loadAppData, setStudentCourseCodes, syncMissingAuthProfiles, softDeleteCourse, permanentlyDeleteStudent, setProfileRole, updateExistingStudents, updateStudentProfile, upsertCourse } from '../lib/api'
 import { parseCsv, previewStudentImport, readTabularFile } from '../lib/importValidation'
+import { buildMasterRosterCsv, downloadTextFile } from '../lib/masterRoster'
 import type { Course, Profile, StudentImportPreviewRow } from '../types'
 
 const studentCsvFormat = `Student ID,Full Name,Email,Phone,Course Codes,Temporary Password
@@ -299,7 +300,7 @@ export function AdminStudents() {
 
   return (
     <>
-      <PageHeader eyebrow="Admin data" title="Courses, students, and rosters" action={<IconButton className="primary" onClick={() => download('student-bulk-import-format.csv', studentCsvFormat)}><FileDown size={16} />Student format</IconButton>}>
+      <PageHeader eyebrow="Admin data" title="Courses, students, and rosters" action={<><IconButton onClick={() => data && downloadTextFile('classroomops-master-roster.csv', buildMasterRosterCsv(data.profiles, data.courseMemberships, data.courses))}><FileDown size={16} />Master roster</IconButton><IconButton className="primary" onClick={() => download('student-bulk-import-format.csv', studentCsvFormat)}><FileDown size={16} />Student format</IconButton></>}>
         Add courses, create or update students, assign courses, and edit table values without opening Supabase.
       </PageHeader>
 
