@@ -494,6 +494,32 @@ main { min-width: 0; padding: 2.5rem clamp(1rem, 3vw, 3rem) 5rem; }
 .exam-code-form label { flex: 1; }
 .exam-link-button { width: fit-content; text-decoration: none; }
 .exam-link-button.disabled { opacity: 0.5; pointer-events: none; }
+
+.native-question-edit { display: flex; align-items: start; gap: 0.8rem; margin: 0.75rem 0; padding: 1rem; border: 1px solid #dce5ec; border-radius: 8px; }
+.native-question-fields { flex: 1; display: grid; gap: 0.75rem; }
+.native-mcq-options { display: grid; gap: 0.5rem; }
+.native-mcq-options label { display: flex; align-items: center; gap: 0.5rem; }
+.native-mcq-options input { flex: 1; }
+.native-mcq-options button { flex: none; }
+.native-exam-screen.taking-exam { background: #f7fafc; color: #172332; min-height: 100vh; padding: 1rem; display: flex; flex-direction: column; }
+.native-exam-screen:fullscreen { overflow: auto; }
+.native-exam-top { display: flex; align-items: center; gap: 1rem; padding: 0.75rem 1rem; background: white; border: 1px solid #dce5ec; border-radius: 10px; }
+.native-exam-top span:nth-child(2) { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 700; }
+.native-exam-workspace { display: grid; grid-template-columns: minmax(210px, 30%) minmax(0, 1fr); gap: 1rem; flex: 1; min-height: 0; margin-top: 1rem; }
+.native-exam-questions, .native-exam-answer { background: white; border: 1px solid #dce5ec; border-radius: 10px; padding: 1.25rem; overflow: auto; }
+.native-exam-questions { display: flex; flex-direction: column; gap: 0.5rem; }
+.native-exam-questions button { text-align: left; padding: 0.75rem; border: 1px solid #dce5ec; border-radius: 6px; background: white; cursor: pointer; }
+.native-exam-questions button.selected { border-color: #238a79; background: #eefaf7; }
+.native-exam-answer { display: flex; flex-direction: column; }
+.native-exam-answer label { display: flex; flex-direction: column; flex: 1; min-height: 220px; }
+.native-exam-answer textarea { flex: 1; min-height: 220px; resize: none; }
+.native-answer-options { display: grid; gap: 0.75rem; }
+.native-answer-options label { display: flex; align-items: center; gap: 0.75rem; padding: 0.8rem; border: 1px solid #dce5ec; border-radius: 7px; cursor: pointer; }
+.native-answer-options input { width: auto; }
+.native-exam-wordcount { position: sticky; bottom: 0; margin-top: auto; padding: 0.85rem 0; background: white; font-weight: 700; color: #315166; }
+.native-exam-confirm { width: min(620px, 100%); margin: auto; padding: 2rem; border: 1px solid #dce5ec; border-radius: 10px; background: white; text-align: center; }
+.native-exam-confirm button { margin: 0.5rem; }
+@media (max-width: 680px) { .native-exam-workspace { grid-template-columns: 1fr; } .native-exam-questions { flex-direction: row; flex-wrap: wrap; } .native-exam-top { flex-wrap: wrap; } }
 .exit-instruction {
   display: flex;
   gap: 0.75rem;

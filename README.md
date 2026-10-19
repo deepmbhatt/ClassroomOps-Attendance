@@ -320,6 +320,24 @@ Historical attendance is available from **Attendance review**: choose the old da
 
 ## 12. Single-Session Security And Secure Exam Gateway
 
+### In-app exams
+
+Apply `202610160001_native_descriptive_exams.sql`, `202610160002_native_exam_warnings_mcq.sql`, and `202610160003_native_exam_offline_recovery.sql` through `supabase db push` in migration order, then deploy the updated frontend. Staff use **In-app exams** to create a timed exam, add each descriptive or single-choice MCQ question, choose the number of tab/fullscreen warnings, set it to Open, and approve enrolled students. Students start one attempt in fullscreen. Answers autosave while typing, and descriptive answers show a live word count. The **Finish exam** button submits after confirmation. Every tab switch, page exit, or fullscreen exit records one warning; reaching the configured limit automatically submits the attempt. Duplicate reports of the same browser event count only once.
+
+During a network outage, the open exam remains usable and answers, questions, deadline, and pending warning/submission events are stored in that browser. The original server-issued deadline continues to count down locally. At zero, editing stops and a final submission is queued; it is uploaded automatically when connectivity returns. A student can reopen the same browser on the same device and choose **Recover your exam** after an abrupt shutdown. The 45-second inactivity finalization has been removed, so an interrupted attempt can resume while time remains and the warning limit has not been reached. A pending offline submission does not appear in the administrator's CSV until it reaches Supabase. Staff can download one CSV with a row for each approved student or started attempt and a column per question, including the selected MCQ option text. Students who did not start remain in the CSV with `not_started` status.
+
+Use a test student account to verify online, offline, reload, timeout, and CSV export before opening a real exam. Students must use the same browser/device and must not clear browser storage before sync confirmation. If browser storage is disabled/full, or the device is lost, unsynced work cannot be recovered. A web page cannot securely prove when offline text was typed, prevent system-clock changes or another device, or reliably detect a sudden power loss; tab/fullscreen warnings are best-effort. For a high-stakes proctored exam, use a managed lockdown environment. The export includes the latest answer received by Supabase.
+
+### Transfer this update to another checkout
+
+Copy `classroomops-update-20261016.tar.gz` and `apply_classroomops_update.sh` into the other device's `ClassroomOps-Attendance` folder. From that folder run:
+
+```bash
+bash ./apply_classroomops_update.sh ./classroomops-update-20261016.tar.gz
+```
+
+The script verifies the archive checksum and backs up every file it replaces into a new `classroomops-backup-*` folder. It then extracts the update and runs a build if dependencies are installed. After extraction, run `supabase db push` on the linked project and redeploy the frontend. If the other checkout has local edits to the same files, review the backup before committing or deploying.
+
 Apply the new migration before deploying the frontend:
 
 ```bash

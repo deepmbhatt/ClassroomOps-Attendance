@@ -3,6 +3,8 @@ import { useAuth } from './auth'
 import { AppShell, Spinner } from './components/Layout'
 import { AdminExams } from './pages/AdminExams'
 import { StudentExam } from './pages/StudentExam'
+import { NativeExamAdmin } from './pages/NativeExamAdmin'
+import { NativeExamStudent } from './pages/NativeExamStudent'
 import { AdminAttendanceReview } from './pages/AdminAttendanceReview'
 import { AdminStudents } from './pages/AdminStudents'
 import { AttendanceTerminal } from './pages/AttendanceTerminal'
@@ -53,10 +55,12 @@ export default function App() {
         <Route path="/admin/marks" element={<RequireRole roles={['admin', 'pseudo_admin']}><MarksImports /></RequireRole>} />
         <Route path="/admin/issues" element={<RequireRole roles={['admin', 'pseudo_admin']}><Issues /></RequireRole>} />
         <Route path="/admin/exams" element={<RequireRole roles={['admin', 'pseudo_admin']}><AdminExams /></RequireRole>} />
+        <Route path="/admin/descriptive-exams" element={<RequireRole roles={['admin', 'pseudo_admin']}><NativeExamAdmin /></RequireRole>} />
         <Route path="/admin/audit" element={<RequireRole roles={['admin', 'pseudo_admin']}><Audit /></RequireRole>} />
         <Route path="/student/face" element={<RequireRole roles={['student']}><FaceRegistration /></RequireRole>} />
         <Route path="/student/attendance" element={<RequireRole roles={['student']}><StudentAttendance /></RequireRole>} />
         <Route path="/student/exams" element={<RequireRole roles={['student']}><StudentExam /></RequireRole>} />
+        <Route path="/student/descriptive-exams" element={<RequireRole roles={['student']}><NativeExamStudent /></RequireRole>} />
         <Route path="/student/issues" element={<RequireRole roles={['student']}><Issues /></RequireRole>} />
       </Route>
     </Routes>
