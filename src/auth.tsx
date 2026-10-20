@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   type PropsWithChildren,
 } from 'react'
@@ -33,6 +34,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [approvalStatus, setApprovalStatus] = useState<'pending' | 'approved' | 'rejected'>(devBypass ? 'approved' : 'pending')
   const [ready, setReady] = useState(devBypass)
   const [sessionMessage, setSessionMessage] = useState('')
+  const sessionUserIdRef = useRef<string | null>(null)
 
   async function claimCurrentDeviceSession() {
     if (!supabase || devBypass) return
@@ -83,6 +85,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     void supabase.auth
       .getSession()
       .then(({ data }) => {
+        sessionUserIdRef.current = data.session?.user.id ?? null
         setSession(data.session)
         if (!data.session?.user) return loadProfileForUser(null)
         return currentDeviceSessionIsValid().then(async (valid) => {
@@ -98,7 +101,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
       .finally(() => setReady(true))
 
     const { data } = supabase.auth.onAuthStateChange((_event, next) => {
+      const nextUserId = next?.user.id ?? null
+      const sameUser = sessionUserIdRef.current === nextUserId
+      sessionUserIdRef.current = nextUserId
       setSession(next)
+      // Supabase may emit SIGNED_IN again when a tab regains focus, and
+      // TOKEN_REFRESHED while an exam is open. Neither changes the student;
+      // toggling ready would unmount the editor and hide their current work.
+      if (sameUser && nextUserId) return
       setReady(false)
       void loadProfileForUser(next?.user ?? null).finally(() => setReady(true))
     })
