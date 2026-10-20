@@ -9,6 +9,10 @@ export type NativeExam = {
   ends_at: string
   duration_minutes: number
   warning_limit: number
+  attendance_session_id: string | null
+  code_mode: 'none' | 'entry' | 'entry_exit'
+  exit_transform: 'reverse' | 'add' | 'subtract'
+  exit_operand: number
   status: 'draft' | 'open' | 'closed'
 }
 
@@ -40,6 +44,7 @@ export type NativeAttempt = {
   status: 'in_progress' | 'submitted' | 'auto_submitted'
   submission_reason: string | null
   submitted_at: string | null
+  exit_code_verified: boolean
 }
 
 export async function loadNativeExams() {
@@ -96,9 +101,10 @@ export async function setNativeAccess(examId: string, studentId: string, approve
   }
 }
 
-export async function startNativeExam(examId: string) {
-  const { data, error } = await requireSupabase().rpc('native_start_exam', { p_exam_id: examId })
+export async function startNativeExam(examId: string, entryCode?: string) {
+  const { data, error } = await requireSupabase().rpc('native_start_exam', { p_exam_id: examId, p_entry_code: entryCode ?? null })
   if (error) throw error
+  if (!data) throw new Error('Incorrect attendance code or too many attempts. Ask staff if your code is locked.')
   return data as NativeAttempt
 }
 
@@ -110,12 +116,20 @@ export async function saveNativeAnswers(attemptId: string, answers: Record<strin
   return Boolean(data)
 }
 
-export async function submitNativeAnswers(attemptId: string, answers: Record<string, string>, revision: number, reason: 'student' | 'browser_left' | 'offline_timeout') {
+export async function submitNativeAnswers(attemptId: string, answers: Record<string, string>, revision: number, reason: 'student' | 'browser_left' | 'offline_timeout', exitCode?: string) {
   const { data, error } = await requireSupabase().rpc('native_submit_exam', {
-    p_attempt_id: attemptId, p_answers: answers, p_revision: revision, p_reason: reason,
+    p_attempt_id: attemptId, p_answers: answers, p_revision: revision, p_reason: reason, p_exit_code: exitCode ?? null,
   })
   if (error) throw error
   return Boolean(data)
+}
+
+export async function getNativeFaceCode(lectureId: string, studentId: string) {
+  const { data, error } = await requireSupabase().rpc('native_face_code', {
+    p_lecture_id: lectureId, p_student_id: studentId,
+  })
+  if (error) throw error
+  return data as string | null
 }
 
 export type NativeViolationEvent = 'tab_hidden' | 'fullscreen_exit' | 'page_exit'

@@ -8,6 +8,7 @@ import { canAcceptFaceConsensus, canAcceptFastFaceMatch, confidenceLabel } from 
 import { attachCameraStream, listVideoInputs, requestCamera, stopCameraStream } from '../lib/camera'
 import { detectFaceRegions, preloadFaceDetector, refineFaceRegionLandmarks, selectPrimaryFace } from '../lib/faceDetection'
 import { createEmbeddingCandidatesFromCanvas, isEmbeddingCompatible, preloadFaceEngine, recommendedFaceMatchThreshold, templateSimilarity } from '../lib/faceEngine'
+import { getNativeFaceCode } from '../lib/nativeExams'
 import { localDateKey } from '../lib/attendanceView'
 import { NEW_SESSION_VALUE, recognitionAttendanceStatus, sessionStartForDate, sessionsForCourseDate } from '../lib/sessionSelection'
 import type { AppData } from '../lib/api'
@@ -351,7 +352,8 @@ export function AttendanceTerminal() {
       const attendanceStatus = recognitionAttendanceStatus(sessionStatus, existingRecord?.status)
       if (!attendanceStatus || recentlyMarkedRef.current.has(verifiedStudentId)) {
         recognitionRetryAfterRef.current = Date.now() + 1800
-        setScanFeedback({ tone: 'success', title: studentName, detail: 'Already approved for this session. Next student may proceed.' })
+        const code = await getNativeFaceCode(lecture, verifiedStudentId).catch(() => null)
+        setScanFeedback({ tone: 'success', title: studentName, detail: `Already approved for this session.${code ? ` Attendance code: ${code}.` : ''} Next student may proceed.` })
         return
       }
 
@@ -365,7 +367,8 @@ export function AttendanceTerminal() {
         source: 'face',
         reason: `${attendanceStatus === 'late' ? 'Late arrival in reopened session. ' : ''}Adaptive verification (${verifiedVotes}/${frameCandidates.length} votes), margin ${verifiedMargin.toFixed(3)}`,
       })
-      setScanFeedback({ tone: 'success', title: studentName, detail: `${attendanceStatus === 'late' ? 'Late attendance' : 'Attendance'} approved at ${Math.round(verifiedScore * 100)}%. Next student may proceed.` })
+      const code = await getNativeFaceCode(lecture, verifiedStudentId).catch(() => null)
+      setScanFeedback({ tone: 'success', title: studentName, detail: `${attendanceStatus === 'late' ? 'Late attendance' : 'Attendance'} approved at ${Math.round(verifiedScore * 100)}%.${code ? ` Attendance code: ${code}.` : ''} Next student may proceed.` })
       await queryClient.invalidateQueries({ queryKey: ['app-data'] })
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Recognition failed.')

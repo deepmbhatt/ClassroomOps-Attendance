@@ -2,12 +2,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChangeEvent, useEffect, useState } from 'react'
 import { Card, IconButton, PageHeader, Spinner } from '../components/Layout'
 import { loadAppData } from '../lib/api'
-import { loadNativeExams, saveNativeExam, saveNativeQuestions, setNativeAccess, type NativeExam, type NativeQuestion } from '../lib/nativeExams'
+import { getNativeFaceCode, loadNativeExams, saveNativeExam, saveNativeQuestions, setNativeAccess, type NativeExam, type NativeQuestion } from '../lib/nativeExams'
 
 type QuestionEdit = { id?: string; prompt: string; question_type: NativeQuestion['question_type']; options: string[] }
 type ExamEdit = Omit<NativeExam, 'id' | 'instructions'> & { instructions: string }
 
-const emptyExam: ExamEdit = { title: '', course_id: '', instructions: '', starts_at: '', ends_at: '', duration_minutes: 60, warning_limit: 1, status: 'draft' }
+const emptyExam: ExamEdit = { title: '', course_id: '', instructions: '', starts_at: '', ends_at: '', duration_minutes: 60, warning_limit: 1, attendance_session_id: null, code_mode: 'none', exit_transform: 'reverse', exit_operand: 0, status: 'draft' }
 const emptyQuestion = (): QuestionEdit => ({ prompt: '', question_type: 'descriptive', options: [] })
 
 function localDate(iso?: string) {
@@ -32,11 +32,14 @@ export function NativeExamAdmin() {
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [studentSearch, setStudentSearch] = useState('')
+  const [shownCodes, setShownCodes] = useState<Record<string, string>>({})
 
   const selected = data?.exams.find((exam) => exam.id === selectedId)
   const savedQuestions = (data?.questions ?? []).filter((question) => question.exam_id === selectedId)
   const access = (data?.access ?? []).filter((row) => row.exam_id === selectedId)
   const attempts = (data?.attempts ?? []).filter((row) => row.exam_id === selectedId)
+  const faceApprovedIds = new Set((app?.attendance ?? []).filter((record) => record.lecture_id === edit.attendance_session_id && record.source === 'face' && (record.status === 'present' || record.status === 'late')).map((record) => record.student_id))
+  const availableSessions = (app?.lectures ?? []).filter((lecture) => lecture.course_id === edit.course_id).sort((a, b) => b.started_at.localeCompare(a.started_at))
   const eligibleStudents = (app?.profiles ?? []).filter((profile) =>
     profile.role === 'student' && profile.approval_status === 'approved' && !profile.deleted_at &&
     app?.courseMemberships.some((membership) => membership.course_id === edit.course_id && membership.student_id === profile.id),
@@ -50,7 +53,9 @@ export function NativeExamAdmin() {
     setEdit({
       title: selected.title, course_id: selected.course_id, instructions: selected.instructions ?? '',
       starts_at: localDate(selected.starts_at), ends_at: localDate(selected.ends_at),
-      duration_minutes: selected.duration_minutes, warning_limit: selected.warning_limit, status: selected.status,
+      duration_minutes: selected.duration_minutes, warning_limit: selected.warning_limit,
+      attendance_session_id: selected.attendance_session_id, code_mode: selected.code_mode ?? 'none',
+      exit_transform: selected.exit_transform ?? 'reverse', exit_operand: selected.exit_operand ?? 0, status: selected.status,
     })
     setQuestions((data?.questions ?? []).filter((question) => question.exam_id === selected.id)
       .map((question) => ({ id: question.id, prompt: question.prompt, question_type: question.question_type, options: question.options })))
@@ -60,6 +65,7 @@ export function NativeExamAdmin() {
     const id = event.target.value
     setSelectedId(id)
     setMessage('')
+    setShownCodes({})
     if (id === 'new') {
       setEdit({ ...emptyExam, course_id: app?.courses[0]?.id ?? '' })
       setQuestions([emptyQuestion()])
@@ -71,8 +77,8 @@ export function NativeExamAdmin() {
       ...question, prompt: question.prompt.trim(),
       options: question.question_type === 'mcq' ? question.options.map((option) => option.trim()) : [],
     }))
-    if (!edit.title.trim() || !edit.course_id || !edit.starts_at || !edit.ends_at || !cleanQuestions.length) {
-      setMessage('Title, course, opening and closing times, and at least one question are required.')
+    if (!edit.title.trim() || !edit.course_id || !edit.attendance_session_id || !edit.starts_at || !edit.ends_at || !cleanQuestions.length) {
+      setMessage('Title, course, face-attendance session, opening and closing times, and at least one question are required.')
       return
     }
     if (cleanQuestions.some((question) => !question.prompt || (question.question_type === 'mcq' &&
@@ -99,7 +105,9 @@ export function NativeExamAdmin() {
         ...(selected ? { id: selected.id } : {}),
         title: edit.title.trim(), course_id: edit.course_id, instructions: edit.instructions.trim(),
         starts_at: new Date(edit.starts_at).toISOString(), ends_at: new Date(edit.ends_at).toISOString(),
-        duration_minutes: Number(edit.duration_minutes), warning_limit: edit.warning_limit, status: edit.status,
+        duration_minutes: Number(edit.duration_minutes), warning_limit: edit.warning_limit,
+        attendance_session_id: edit.attendance_session_id, code_mode: edit.code_mode,
+        exit_transform: edit.exit_transform, exit_operand: edit.exit_operand, status: edit.status,
       })
       if (questionsChanged) await saveNativeQuestions(id, cleanQuestions, savedQuestions)
       setSelectedId(id)
@@ -130,17 +138,16 @@ export function NativeExamAdmin() {
       const ordered = fresh.questions.filter((question) => question.exam_id === selected.id).sort((a, b) => a.position - b.position)
       const freshAccess = fresh.access.filter((row) => row.exam_id === selected.id)
       const freshAttempts = fresh.attempts.filter((row) => row.exam_id === selected.id)
-      const header = ['Student ID', 'Name', 'Email', 'Attempt status', 'Warnings', 'Started at', 'Submitted at', 'Submission reason', ...ordered.map((question) => `Q${question.position} (${question.question_type === 'mcq' ? 'MCQ' : 'descriptive'}): ${question.prompt}`)]
-      const studentIds = [...new Set([...freshAccess.map((row) => row.student_id), ...freshAttempts.map((row) => row.student_id)])]
+      const header = ['Student ID', 'Name', 'Email', 'Attempt status', 'Warnings', 'Started at', 'Submitted at', 'Submission reason', 'Exit code verified', ...ordered.map((question) => `Q${question.position} (${question.question_type === 'mcq' ? 'MCQ' : 'descriptive'}): ${question.prompt}`)]
+      const faceIds = (app?.attendance ?? []).filter((record) => record.lecture_id === selected.attendance_session_id && record.source === 'face' && (record.status === 'present' || record.status === 'late')).map((record) => record.student_id)
+      const studentIds = [...new Set([...(selected.attendance_session_id ? faceIds : freshAccess.map((row) => row.student_id)), ...freshAttempts.map((row) => row.student_id)])]
       const rows = studentIds.map((studentId) => {
         const student = app?.profiles.find((profile) => profile.id === studentId)
         const attempt = freshAttempts.find((item) => item.student_id === studentId)
-        const timedOut = attempt?.status === 'in_progress' && Date.now() >= new Date(attempt.deadline_at).getTime()
-        const left = attempt?.status === 'in_progress' && Date.now() - new Date(attempt.last_seen_at).getTime() > 45_000
-        const status = timedOut || left ? 'auto_submitted' : attempt?.status ?? 'not_started'
-        const submittedAt = attempt?.submitted_at ?? (timedOut ? attempt?.deadline_at : left ? new Date(new Date(attempt.last_seen_at).getTime() + 45_000).toISOString() : '')
-        return [student?.student_id, student?.full_name, student?.email, status, attempt?.warning_count ?? 0, attempt?.started_at, submittedAt,
-          timedOut ? 'time_expired' : left ? 'browser_left' : attempt?.submission_reason,
+        const awaitingSync = attempt?.status === 'in_progress' && Date.now() >= new Date(attempt.deadline_at).getTime()
+        const status = awaitingSync ? 'pending_sync' : attempt?.status ?? 'not_started'
+        return [student?.student_id, student?.full_name, student?.email, status, attempt?.warning_count ?? 0, attempt?.started_at, attempt?.submitted_at,
+          awaitingSync ? 'awaiting_offline_upload' : attempt?.submission_reason, attempt?.exit_code_verified ? 'yes' : 'no',
           ...ordered.map((question) => {
             const answer = attempt?.answers?.[question.id] ?? ''
             return question.question_type === 'mcq' && answer !== '' ? question.options[Number(answer)] ?? '' : answer
@@ -168,11 +175,14 @@ export function NativeExamAdmin() {
       <label>Exam<select value={selectedId} onChange={choose}><option value="new">New exam</option>{data?.exams.map((exam) => <option key={exam.id} value={exam.id}>{exam.title}</option>)}</select></label>
       <div className="form-grid">
         <label>Title<input value={edit.title} onChange={(event) => setEdit({ ...edit, title: event.target.value })} /></label>
-        <label>Course<select value={edit.course_id} disabled={attempts.length > 0} onChange={(event) => setEdit({ ...edit, course_id: event.target.value })}><option value="">Select course</option>{app?.courses.map((course) => <option key={course.id} value={course.id}>{course.code} — {course.title}</option>)}</select></label>
+        <label>Course<select value={edit.course_id} disabled={attempts.length > 0} onChange={(event) => setEdit({ ...edit, course_id: event.target.value, attendance_session_id: null })}><option value="">Select course</option>{app?.courses.map((course) => <option key={course.id} value={course.id}>{course.code} — {course.title}</option>)}</select></label>
+        <label>Face-attendance session<select value={edit.attendance_session_id ?? ''} disabled={attempts.length > 0} onChange={(event) => setEdit({ ...edit, attendance_session_id: event.target.value || null })}><option value="">Select session</option>{availableSessions.map((lecture) => <option key={lecture.id} value={lecture.id}>{lecture.title} · {new Date(lecture.started_at).toLocaleString('en-IN')}</option>)}</select></label>
         <label>Opens<input type="datetime-local" value={edit.starts_at} onChange={(event) => setEdit({ ...edit, starts_at: event.target.value })} /></label>
         <label>Closes<input type="datetime-local" value={edit.ends_at} onChange={(event) => setEdit({ ...edit, ends_at: event.target.value })} /></label>
         <label>Duration (minutes)<input type="number" min="1" max="360" value={edit.duration_minutes} onChange={(event) => setEdit({ ...edit, duration_minutes: Number(event.target.value) })} /></label>
         <label>Auto-submit after warnings<input type="number" min="1" max="10" disabled={attempts.length > 0} value={edit.warning_limit} onChange={(event) => setEdit({ ...edit, warning_limit: Number(event.target.value) })} /></label>
+        <label>Attendance code check<select value={edit.code_mode} disabled={attempts.length > 0} onChange={(event) => setEdit({ ...edit, code_mode: event.target.value as NativeExam['code_mode'] })}><option value="none">No code (face attendance only)</option><option value="entry">4-digit entry code</option><option value="entry_exit">Entry and transformed exit code</option></select></label>
+        {edit.code_mode === 'entry_exit' ? <><label>Exit code rule<select value={edit.exit_transform} onChange={(event) => setEdit({ ...edit, exit_transform: event.target.value as NativeExam['exit_transform'] })}><option value="reverse">Reverse the four digits</option><option value="add">Add a number, modulo 10000</option><option value="subtract">Subtract a number, modulo 10000</option></select></label>{edit.exit_transform !== 'reverse' ? <label>Number to add/subtract<input type="number" min="0" max="9999" value={edit.exit_operand} onChange={(event) => setEdit({ ...edit, exit_operand: Number(event.target.value) })} /></label> : null}</> : null}
         <label>Status<select value={edit.status} onChange={(event) => setEdit({ ...edit, status: event.target.value as NativeExam['status'] })}><option value="draft">Draft</option><option value="open">Open</option><option value="closed">Closed</option></select></label>
       </div>
       <label>Instructions<textarea value={edit.instructions} onChange={(event) => setEdit({ ...edit, instructions: event.target.value })} /></label>
@@ -190,13 +200,13 @@ export function NativeExamAdmin() {
       {attempts.length ? <p className="muted-copy">Questions are locked because a student has started this exam.</p> : null}
     </Card>
     {selected ? <Card>
-      <div className="section-title"><div><p className="eyebrow">Access and responses</p><h2>Approve students</h2></div><IconButton onClick={() => void exportCsv()} disabled={busy}>Download combined CSV</IconButton></div>
-      <p className="muted-copy">Only approved accounts enrolled in this course appear below. Each student can start once.</p>
+      <div className="section-title"><div><p className="eyebrow">Access and responses</p><h2>Face-attendance eligibility</h2></div><IconButton onClick={() => void exportCsv()} disabled={busy}>Download combined CSV</IconButton></div>
+      <p className="muted-copy">Only face-verified present/late students from the selected session can start. A four-digit code is displayed at the attendance terminal after recognition when code checks are enabled. Each student gets one attempt.</p>
       <label>Find student<input value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="Name or student ID" /></label>
       <div className="table-scroll"><table><thead><tr><th>Student</th><th>Access</th><th>Attempt</th><th>Action</th></tr></thead><tbody>{visibleStudents.map((student) => {
-        const granted = access.some((item) => item.student_id === student.id)
+        const granted = selected.attendance_session_id ? faceApprovedIds.has(student.id) : access.some((item) => item.student_id === student.id)
         const attempt = attempts.find((item) => item.student_id === student.id)
-        return <tr key={student.id}><td>{student.full_name}<small>{student.student_id}</small></td><td>{granted ? 'Approved' : 'Waiting'}</td><td>{attempt?.status ?? 'Not started'}</td><td><button disabled={busy} onClick={() => void approve(student.id, !granted)}>{granted ? 'Remove access' : 'Approve'}</button></td></tr>
+        return <tr key={student.id}><td>{student.full_name}<small>{student.student_id}</small></td><td>{granted ? 'Face verified' : 'Waiting for face attendance'}</td><td>{attempt?.status ?? 'Not started'}</td><td>{selected.attendance_session_id ? granted && selected.code_mode !== 'none' ? <button onClick={() => void getNativeFaceCode(selected.attendance_session_id!, student.id).then((code) => setShownCodes((current) => ({ ...current, [student.id]: code ?? 'Not issued' }))).catch((nextError) => setMessage(nextError instanceof Error ? nextError.message : 'Could not load code'))}>{shownCodes[student.id] ?? 'Show code'}</button> : '—' : <button disabled={busy} onClick={() => void approve(student.id, !granted)}>{granted ? 'Remove access' : 'Approve'}</button>}</td></tr>
       })}</tbody></table></div>
     </Card> : null}
   </>

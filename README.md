@@ -322,18 +322,22 @@ Historical attendance is available from **Attendance review**: choose the old da
 
 ### In-app exams
 
-Apply `202610160001_native_descriptive_exams.sql`, `202610160002_native_exam_warnings_mcq.sql`, and `202610160003_native_exam_offline_recovery.sql` through `supabase db push` in migration order, then deploy the updated frontend. Staff use **In-app exams** to create a timed exam, add each descriptive or single-choice MCQ question, choose the number of tab/fullscreen warnings, set it to Open, and approve enrolled students. Students start one attempt in fullscreen. Answers autosave while typing, and descriptive answers show a live word count. The **Finish exam** button submits after confirmation. Every tab switch, page exit, or fullscreen exit records one warning; reaching the configured limit automatically submits the attempt. Duplicate reports of the same browser event count only once.
+Apply `202610160001_native_descriptive_exams.sql`, `202610160002_native_exam_warnings_mcq.sql`, `202610160003_native_exam_offline_recovery.sql`, and `202610190001_native_exam_face_gate.sql` through `supabase db push` in migration order, then deploy the updated frontend. Staff use **In-app exams** to create a timed exam, add each descriptive or single-choice MCQ question, choose the number of tab/fullscreen warnings, select a face-attendance session, and set it to Open. Only approved students with a present/late record whose source is `face` for that session can start. The student-side **My exam access** link has been removed; `/student/exams` redirects to the in-app exam page.
 
-During a network outage, the open exam remains usable and answers, questions, deadline, and pending warning/submission events are stored in that browser. The original server-issued deadline continues to count down locally. At zero, editing stops and a final submission is queued; it is uploaded automatically when connectivity returns. A student can reopen the same browser on the same device and choose **Recover your exam** after an abrupt shutdown. The 45-second inactivity finalization has been removed, so an interrupted attempt can resume while time remains and the warning limit has not been reached. A pending offline submission does not appear in the administrator's CSV until it reaches Supabase. Staff can download one CSV with a row for each approved student or started attempt and a column per question, including the selected MCQ option text. Students who did not start remain in the CSV with `not_started` status.
+The optional four-digit attendance code is generated per face-verified student/session and shown on the staff attendance terminal or in the exam's staff eligibility list. Staff can require no code, an entry code, or both entry and exit codes. The exit code is derived from the attendance code by reversing it, adding a configured number, or subtracting a configured number (four-digit modulo 10000). Staff communicate the currently selected rule to students; it is not revealed on the student screen. Entry and exit checks run server-side with five failed attempts causing a 15-minute lockout. A warning-limit auto-submission cannot ask for an exit code; the CSV explicitly records whether the exit code was verified.
 
-Use a test student account to verify online, offline, reload, timeout, and CSV export before opening a real exam. Students must use the same browser/device and must not clear browser storage before sync confirmation. If browser storage is disabled/full, or the device is lost, unsynced work cannot be recovered. A web page cannot securely prove when offline text was typed, prevent system-clock changes or another device, or reliably detect a sudden power loss; tab/fullscreen warnings are best-effort. For a high-stakes proctored exam, use a managed lockdown environment. The export includes the latest answer received by Supabase.
+Before a new attempt, the student page measures a 128 KiB download and requires at least 500 kilobits/second, then checks for a laptop/desktop browser, then requests the optional entry code. The exam starts only after the student clicks to enter fullscreen. The screen has Previous/Next, Finish, flag-for-review, green answered / blue unanswered / red flagged question buttons, a word count, and live autosave. Every tab switch, page exit, or fullscreen exit records one warning; reaching the configured limit automatically submits the attempt. Duplicate reports of the same browser event count only once.
+
+During a network outage, the open exam remains usable and answers, flags, questions, deadline, and pending warning/submission events are stored in that browser. The original server-issued deadline continues to count down locally; shutdown time is not restored. At zero, editing stops and a final submission is queued; it is uploaded when connectivity returns, after the exit code is entered if that option is enabled. A student can reopen the same browser on the same device and choose **Recover your exam** after an abrupt shutdown. The 45-second inactivity finalization has been removed, so an interrupted attempt can resume while time remains and the warning limit has not been reached. A pending offline submission is shown as `pending_sync` in the administrator's CSV, not falsely marked as submitted. The CSV contains a row for each face-eligible student or started attempt and a column per question, including the selected MCQ option text.
+
+Use a test student account to verify face attendance, entry/exit codes, online/offline work, reload, timeout, and CSV export before opening a real exam. Students must use the same browser/device and must not clear browser storage before sync confirmation. If browser storage is disabled/full, or the device is lost, unsynced work cannot be recovered. The 500 kbps download check can vary with network conditions, and browser device detection is spoofable. A web page cannot securely prove when offline text was typed, prevent system-clock changes or another device, or reliably detect a sudden power loss; tab/fullscreen warnings are best-effort. A four-digit code is an additional check, not strong two-factor authentication. For a high-stakes proctored exam, use a managed lockdown environment. The export includes the latest answer received by Supabase.
 
 ### Transfer this update to another checkout
 
-Copy `classroomops-update-20261016.tar.gz` and `apply_classroomops_update.sh` into the other device's `ClassroomOps-Attendance` folder. From that folder run:
+Copy `classroomops-update-20261021.tar.gz` and `apply_classroomops_update.sh` into the other device's `ClassroomOps-Attendance` folder. From that folder run:
 
 ```bash
-bash ./apply_classroomops_update.sh ./classroomops-update-20261016.tar.gz
+bash ./apply_classroomops_update.sh ./classroomops-update-20261021.tar.gz
 ```
 
 The script verifies the archive checksum and backs up every file it replaces into a new `classroomops-backup-*` folder. It then extracts the update and runs a build if dependencies are installed. After extraction, run `supabase db push` on the linked project and redeploy the frontend. If the other checkout has local edits to the same files, review the backup before committing or deploying.
@@ -350,13 +354,15 @@ supabase functions deploy delete-student
 
 A successful login claims the account for that browser/device and revokes other Supabase refresh sessions. Existing app sessions check ownership every 15 seconds and whenever the window regains focus. A replaced session is signed out with an explanatory message. The device key is also attached to database requests; protected exam-code verification and link release reject a replaced session server-side.
 
-### Exam workflow
+### Legacy external exam gateway
+
+The staff-side external gateway remains for historical records. The student **My exam access** route is no longer exposed; use **In-app exams** for new exams.
 
 1. Staff creates an exam gateway and links it to the face-attendance session.
 2. Staff downloads the Master roster CSV, fills each student's `Individual Exam Link`, and uploads it under **Exam access**.
 3. Missing `Verification Code` and `Expected Exit Code` values are generated in the browser. Staff must download and securely retain the prepared file before saving.
 4. **Approve Exam Access** succeeds only for `present`/`late` attendance whose source is `face`.
-5. Approved students see **My exam access**, enter their individual code, and receive the protected Unstop URL only after the server verifies the code and exam window.
+5. The older gateway verified individual codes before releasing the protected Unstop URL.
 6. The exit instruction appears at `Exit instruction release`, normally five minutes before closing.
 7. After Unstop submission, add exported responses to `Submitted Exit Code` in the same prepared CSV and upload it under **Exit review**. Incorrect codes are marked `manual_review`; they never automatically assign zero marks.
 
