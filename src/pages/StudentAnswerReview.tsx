@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../auth'
 import { Card, PageHeader, Spinner } from '../components/Layout'
 import { loadMyNativeExamReviews } from '../lib/nativeExams'
+import { orderReviewQuestions } from '../lib/reviewQuestionOrder'
 import { isReviewWindowOpen } from '../lib/reviewWindow'
 
 export function StudentAnswerReview() {
@@ -33,7 +34,7 @@ export function StudentAnswerReview() {
     return accessWindow && isReviewWindowOpen(null, accessWindow.available_until, clock)
   })
   const selected = available.find((row) => row.exam_id === examId) ?? available[0]
-  const questions = (data?.questions ?? []).filter((question) => question.exam_id === selected?.exam_id).sort((a, b) => a.position - b.position)
+  const questions = orderReviewQuestions((data?.questions ?? []).filter((question) => question.exam_id === selected?.exam_id))
   const question = questions[Math.min(questionIndex, Math.max(0, questions.length - 1))]
   const answer = question ? selected?.answers[question.id] ?? '' : ''
   const mark = question ? selected?.marks[question.id] : null

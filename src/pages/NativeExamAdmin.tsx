@@ -4,7 +4,8 @@ import { useAuth } from '../auth'
 import { Card, IconButton, PageHeader, Spinner } from '../components/Layout'
 import { ExamReviewManager } from '../components/ExamReviewManager'
 import { loadAppData } from '../lib/api'
-import { parseCsv, readTabularFile } from '../lib/importValidation'
+import { readTabularFile } from '../lib/importValidation'
+import { pastQuestionHeadings } from '../lib/pastQuestionHeadings'
 import { deleteNativeExam, getNativeFaceCode, loadNativeExamReviewAdmin, loadNativeExams, saveNativeExam, saveNativeQuestions, setNativeAccess, type NativeExam, type NativeQuestion } from '../lib/nativeExams'
 
 type QuestionEdit = { id?: string; prompt: string; question_type: NativeQuestion['question_type']; options: string[] }
@@ -157,13 +158,9 @@ export function NativeExamAdmin() {
     const file = event.target.files?.[0]
     if (!file) return
     try {
-      const [headers = []] = parseCsv(await readTabularFile(file))
-      const ignored = new Set(['enrollment number', 'enrollment no', 'student id', 'student_id', 'roll number', 'roll no', 'name', 'student name', 'email', 'attempt status', 'warnings', 'started at', 'submitted at', 'submission reason', 'exit code verified'])
-      const prompts = headers.map((header) => header.trim()).filter((header) => header && !ignored.has(header.toLowerCase()))
-      if (prompts.length < 1 || !headers.some((header) => ignored.has(header.trim().toLowerCase()) && /enrollment|student|roll/.test(header.toLowerCase()))) throw new Error('The file needs an Enrollment Number column and at least one question column.')
-      if (new Set(prompts.map((prompt) => prompt.toLowerCase())).size !== prompts.length) throw new Error('Question headings must be unique.')
+      const prompts = pastQuestionHeadings(await readTabularFile(file))
       setQuestions(prompts.map((prompt) => ({ prompt, question_type: 'descriptive', options: [] })))
-      setMessage(`${prompts.length} question headings loaded. Check their text, then save the past exam.`)
+      setMessage(`${prompts.length} question headings loaded in Q-number order. Check their text, then save the past exam.`)
     } catch (nextError) { setMessage(nextError instanceof Error ? nextError.message : 'Could not load question headings.') }
     finally { event.target.value = '' }
   }
