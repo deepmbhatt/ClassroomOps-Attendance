@@ -346,15 +346,26 @@ In the marks file, the same columns contain non-negative numbers or blank cells.
 
 Apply `202610210002_native_exam_review_window.sql` to enable optional opening and closing times. Set one or both times before publishing. Supabase checks the access window using server time; the student page also hides an already-open review when its closing time passes. A newly opened review may take up to 10 seconds to appear while the page is already open. Previously delivered content cannot be taken back from a browser, so the time limit controls new access rather than preventing a screenshot taken during the window.
 
+### Publish an exam held outside this app
+
+Apply `202610210003_native_exam_review_only_and_delete.sql` with `supabase db push`. In **Exams and answer reviews**, choose **Create a new exam** and set **Purpose** to **Publish a past exam's answers and marks**. Enter its title, course, and date. Add the questions in the same order as the answer/marks file columns, or load question headings from an answers CSV/Excel file and check them. Save the exam, then upload the answers and marks files under **Publish answer reviews**. Preview and import both files, set an optional access window, and publish. Students see their own answers and marks under **My answer reviews**; this review-only record never appears as a test they can take. Students must be approved and enrolled in the selected course for their enrollment numbers to match during import.
+
+To remove a trial or past exam, select it and expand **Delete this exam**. Type its exact title and confirm. This permanently removes the exam, questions, attempts, answers, imported marks, and review access. An exam with an active attempt whose deadline has not passed cannot be deleted. Export any responses you need before deleting.
+
 ### Transfer this update to another checkout
 
-Copy `classroomops-update-20261021.tar.gz` and `apply_classroomops_update.sh` into the other device's `ClassroomOps-Attendance` folder. From that folder run:
+Copy `classroomops-update-20261021-past-exams.tar.gz` into the other device's `ClassroomOps-Attendance` folder. From that folder run:
 
 ```bash
-bash ./apply_classroomops_update.sh ./classroomops-update-20261021.tar.gz
+tar -xzf classroomops-update-20261021-past-exams.tar.gz -C .
+npm install
+npm test -- --run
+npm run lint
+npm run build
+supabase db push
 ```
 
-The script verifies the archive checksum and backs up every file it replaces into a new `classroomops-backup-*` folder. It then extracts the update and runs a build if dependencies are installed. After extraction, run `supabase db push` on the linked project and redeploy the frontend. If the other checkout has local edits to the same files, review the backup before committing or deploying.
+The archive contains source and migrations, not `.env` or `.git`. Extraction replaces matching source files; back up local edits to those files first. The old apply script targets an older archive and should not be used for this package. Link the correct Supabase project before `supabase db push`, then redeploy the frontend.
 
 Apply the new migration before deploying the frontend:
 

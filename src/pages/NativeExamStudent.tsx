@@ -376,7 +376,7 @@ export function NativeExamStudent() {
     }
   }
 
-  const exams = data?.exams ?? []
+  const exams = (data?.exams ?? []).filter((exam) => !exam.review_only)
   const currentQuestion = questions[selectedQuestion]
   const activeExam = examRef.current ?? exams.find((exam) => exam.id === active?.exam_id)
   const currentAnswer = currentQuestion ? answers[currentQuestion.id] ?? '' : ''

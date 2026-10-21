@@ -26,7 +26,7 @@ const adminGroups = [
       ['/admin/students', 'Courses & students', Users],
       ['/admin/marks', 'Assessments & marks', FileSpreadsheet],
       ['/admin/exams', 'Exam access', ShieldCheck],
-      ['/admin/descriptive-exams', 'In-app exams', ClipboardCheck],
+      ['/admin/descriptive-exams', 'Exams & reviews', ClipboardCheck],
       ['/admin/issues', 'Student requests', MessageSquareWarning],
     ],
   },
@@ -43,7 +43,7 @@ const adminGroups = [
 
 const pseudoAdminGroups = [
   { label: 'Overview', links: [['/', 'Dashboard', Gauge]] },
-  { label: 'Academics', links: [['/admin/marks', 'Assessments & marks', FileSpreadsheet], ['/admin/exams', 'Exam access', ShieldCheck], ['/admin/descriptive-exams', 'In-app exams', ClipboardCheck], ['/admin/issues', 'Student requests', MessageSquareWarning]] },
+  { label: 'Academics', links: [['/admin/marks', 'Assessments & marks', FileSpreadsheet], ['/admin/exams', 'Exam access', ShieldCheck], ['/admin/descriptive-exams', 'Exams & reviews', ClipboardCheck], ['/admin/issues', 'Student requests', MessageSquareWarning]] },
   { label: 'Attendance', links: [['/admin/attendance', 'Live terminal', Camera], ['/admin/attendance-review', 'Attendance review', ClipboardCheck], ['/admin/biometrics', 'Face enrollments', ShieldCheck], ['/admin/audit', 'Audit history', History]] },
 ] as const
 
@@ -71,7 +71,7 @@ const routeNames: Record<string, string> = {
   '/admin/issues': 'Student requests',
   '/admin/audit': 'Audit history',
   '/admin/exams': 'Exam access control',
-  '/admin/descriptive-exams': 'In-app exams',
+  '/admin/descriptive-exams': 'Exams & reviews',
   '/student/face': 'Face registration',
   '/student/attendance': 'My attendance',
   '/student/issues': 'My requests',

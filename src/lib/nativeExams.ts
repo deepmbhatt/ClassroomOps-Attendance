@@ -15,6 +15,8 @@ export type NativeExam = {
   exit_transform: 'reverse' | 'add' | 'subtract'
   exit_operand: number
   status: 'draft' | 'open' | 'closed'
+  review_only: boolean
+  held_on: string | null
 }
 
 export type NativeQuestion = {
@@ -132,6 +134,15 @@ export async function saveNativeExam(input: Omit<NativeExam, 'id'> & { id?: stri
   const { data, error } = await client.from('native_exams').upsert(input).select('id').single()
   if (error) throw error
   return data.id as string
+}
+
+export async function deleteNativeExam(examId: string, confirmationTitle: string) {
+  const { data, error } = await requireSupabase().rpc('native_delete_exam', {
+    p_exam_id: examId,
+    p_confirm_title: confirmationTitle,
+  })
+  if (error) throw error
+  if (!data) throw new Error('Exam could not be deleted.')
 }
 
 export async function saveNativeQuestions(examId: string, prompts: Array<{ id?: string; prompt: string; question_type: NativeQuestion['question_type']; options: string[] }>, existing: NativeQuestion[]) {

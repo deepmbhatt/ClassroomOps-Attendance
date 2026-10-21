@@ -33,12 +33,21 @@ describe('App', () => {
 
   it('lets staff configure warnings and add mixed exam questions', async () => {
     renderApp('/admin/descriptive-exams')
-    expect(await screen.findByRole('heading', { name: /In-app exams/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /Exams and answer reviews/i })).toBeInTheDocument()
     expect(screen.getByLabelText(/Auto-submit after warnings/i)).toHaveValue(1)
     fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'mcq' } })
     expect(screen.getByLabelText('Option 1')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Add next question/i }))
     expect(screen.getByText(/Questions \(2\)/i)).toBeInTheDocument()
+  })
+
+  it('offers review-only setup for an exam held outside the app', async () => {
+    renderApp('/admin/descriptive-exams')
+    expect(await screen.findByRole('heading', { name: /Exams and answer reviews/i })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Purpose'), { target: { value: 'review' } })
+    expect(screen.getByLabelText('Past exam date')).toBeInTheDocument()
+    expect(screen.getByText(/Students will not see them in the exam-taking screen/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText('Auto-submit after warnings')).not.toBeInTheDocument()
   })
 
   it('renders the biometric processing page', async () => {
