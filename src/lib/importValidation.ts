@@ -6,37 +6,31 @@ export interface KnownStudent {
   email?: string
 }
 
-function splitCsvLine(line: string) {
-  const cells: string[] = []
+export function parseCsv(text: string) {
+  const rows: string[][] = []
+  let row: string[] = []
   let cell = ''
   let quoted = false
-
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index]
-    const next = line[index + 1]
-    if (char === '"' && quoted && next === '"') {
-      cell += '"'
-      index += 1
-    } else if (char === '"') {
-      quoted = !quoted
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    if (char === '"') {
+      if (quoted && text[index + 1] === '"') { cell += '"'; index += 1 }
+      else quoted = !quoted
     } else if (char === ',' && !quoted) {
-      cells.push(cell.trim())
+      row.push(cell.trim())
       cell = ''
-    } else {
-      cell += char
-    }
+    } else if ((char === '\n' || char === '\r') && !quoted) {
+      if (char === '\r' && text[index + 1] === '\n') index += 1
+      row.push(cell.trim())
+      if (row.some((value) => value.length)) rows.push(row)
+      row = []
+      cell = ''
+    } else cell += char
   }
-
-  cells.push(cell.trim())
-  return cells
-}
-
-export function parseCsv(text: string) {
-  return text
-    .trim()
-    .split(/\r?\n/)
-    .filter((line) => line.trim().length > 0)
-    .map(splitCsvLine)
+  if (quoted) throw new Error('CSV contains an unclosed quoted cell.')
+  row.push(cell.trim())
+  if (row.some((value) => value.length)) rows.push(row)
+  return rows
 }
 
 export async function readTabularFile(file: File) {

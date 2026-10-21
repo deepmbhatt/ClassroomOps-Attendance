@@ -332,6 +332,18 @@ During a network outage, the open exam remains usable and answers, flags, questi
 
 Use a test student account to verify face attendance, entry/exit codes, online/offline work, reload, timeout, and CSV export before opening a real exam. Students must use the same browser/device and must not clear browser storage before sync confirmation. If browser storage is disabled/full, or the device is lost, unsynced work cannot be recovered. The 500 kbps download check can vary with network conditions, and browser device detection is spoofable. A web page cannot securely prove when offline text was typed, prevent system-clock changes or another device, or reliably detect a sudden power loss; tab/fullscreen warnings are best-effort. A four-digit code is an additional check, not strong two-factor authentication. For a high-stakes proctored exam, use a managed lockdown environment. The export includes the latest answer received by Supabase.
 
+### Student answer review
+
+Apply `202610210001_native_exam_answer_reviews.sql` with `supabase db push` before deploying this frontend. On **In-app exams**, choose a saved exam and use **Publish answer reviews**. Upload one CSV/Excel file with student answers and a second with question marks. Both need an `Enrollment Number` (or `Student ID`) column and one column per saved question. Column headings may be the complete question text or `Q1`, `Q2`, etc. The existing combined exam-response CSV is also accepted as the answers file. For example:
+
+```csv
+Enrollment Number,Q1,Q2
+202618019,"A written answer",B
+202618020,,A
+```
+
+In the marks file, the same columns contain non-negative numbers or blank cells. Keep enrollment numbers as text in Excel to avoid losing leading zeros or precision. Import up to 1,000 students per file; split larger cohorts into multiple uploads. Preview errors must be resolved before importing. Uploads are private until an administrator explicitly publishes; students see only their own answer and mark, one question at a time, under **My answer reviews**. Blank answers and marks display as blank. Unpublish before correcting an uploaded file. The browser view disables ordinary text selection, copy, context menu and printing and includes an identity watermark, but browser code cannot prevent screenshots, developer tools, or a camera photo. Do not promise screenshot-proof results.
+
 ### Transfer this update to another checkout
 
 Copy `classroomops-update-20261021.tar.gz` and `apply_classroomops_update.sh` into the other device's `ClassroomOps-Attendance` folder. From that folder run:

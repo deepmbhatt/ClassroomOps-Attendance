@@ -1,6 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChangeEvent, useEffect, useState } from 'react'
+import { useAuth } from '../auth'
 import { Card, IconButton, PageHeader, Spinner } from '../components/Layout'
+import { ExamReviewManager } from '../components/ExamReviewManager'
 import { loadAppData } from '../lib/api'
 import { getNativeFaceCode, loadNativeExams, saveNativeExam, saveNativeQuestions, setNativeAccess, type NativeExam, type NativeQuestion } from '../lib/nativeExams'
 
@@ -23,6 +25,7 @@ function csvCell(value: unknown) {
 }
 
 export function NativeExamAdmin() {
+  const auth = useAuth()
   const queryClient = useQueryClient()
   const { data: app, isLoading: appLoading } = useQuery({ queryKey: ['app-data'], queryFn: loadAppData })
   const { data, isLoading, error } = useQuery({ queryKey: ['native-exams'], queryFn: loadNativeExams })
@@ -209,5 +212,6 @@ export function NativeExamAdmin() {
         return <tr key={student.id}><td>{student.full_name}<small>{student.student_id}</small></td><td>{granted ? 'Face verified' : 'Waiting for face attendance'}</td><td>{attempt?.status ?? 'Not started'}</td><td>{selected.attendance_session_id ? granted && selected.code_mode !== 'none' ? <button onClick={() => void getNativeFaceCode(selected.attendance_session_id!, student.id).then((code) => setShownCodes((current) => ({ ...current, [student.id]: code ?? 'Not issued' }))).catch((nextError) => setMessage(nextError instanceof Error ? nextError.message : 'Could not load code'))}>{shownCodes[student.id] ?? 'Show code'}</button> : '—' : <button disabled={busy} onClick={() => void approve(student.id, !granted)}>{granted ? 'Remove access' : 'Approve'}</button>}</td></tr>
       })}</tbody></table></div>
     </Card> : null}
+    {selected && auth.role === 'admin' ? <ExamReviewManager key={selected.id} examId={selected.id} questions={savedQuestions} students={eligibleStudents} /> : null}
   </>
 }

@@ -54,6 +54,7 @@ const studentGroups = [
       ['/', 'Home', Gauge],
       ['/student/attendance', 'My attendance', ClipboardCheck],
       ['/student/descriptive-exams', 'In-app exams', ClipboardCheck],
+      ['/student/answer-review', 'My answer reviews', FileSpreadsheet],
       ['/student/face', 'Face registration', Camera],
       ['/student/issues', 'My requests', MessageSquareWarning],
     ],
@@ -75,6 +76,7 @@ const routeNames: Record<string, string> = {
   '/student/attendance': 'My attendance',
   '/student/issues': 'My requests',
   '/student/descriptive-exams': 'In-app exams',
+  '/student/answer-review': 'My answer reviews',
   '/change-password': 'Account security',
   '/pending-approval': 'Account approval',
 }

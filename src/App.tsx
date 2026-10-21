@@ -4,6 +4,7 @@ import { AppShell, Spinner } from './components/Layout'
 import { AdminExams } from './pages/AdminExams'
 import { NativeExamAdmin } from './pages/NativeExamAdmin'
 import { NativeExamStudent } from './pages/NativeExamStudent'
+import { StudentAnswerReview } from './pages/StudentAnswerReview'
 import { AdminAttendanceReview } from './pages/AdminAttendanceReview'
 import { AdminStudents } from './pages/AdminStudents'
 import { AttendanceTerminal } from './pages/AttendanceTerminal'
@@ -60,6 +61,7 @@ export default function App() {
         <Route path="/student/attendance" element={<RequireRole roles={['student']}><StudentAttendance /></RequireRole>} />
         <Route path="/student/exams" element={<Navigate to="/student/descriptive-exams" replace />} />
         <Route path="/student/descriptive-exams" element={<RequireRole roles={['student']}><NativeExamStudent /></RequireRole>} />
+        <Route path="/student/answer-review" element={<RequireRole roles={['student']}><StudentAnswerReview /></RequireRole>} />
         <Route path="/student/issues" element={<RequireRole roles={['student']}><Issues /></RequireRole>} />
       </Route>
     </Routes>
