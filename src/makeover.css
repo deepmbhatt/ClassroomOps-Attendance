@@ -576,6 +576,8 @@ input[type="file"] { max-width: 100%; }
 .exam-review-upload p { margin: 0; color: var(--muted); font-size: .75rem; }
 .exam-review-upload .icon-text { justify-self: start; }
 .exam-review-upload .form-error ul { margin: .5rem 0 0; padding-left: 1.2rem; }
+.exam-review-window { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; margin-top: 1rem; }
+.exam-review-window + .muted-copy { margin: .6rem 0 0; font-size: .74rem; }
 .exam-review-publish { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
 .exam-review-publish p { margin: 0; color: var(--muted); font-size: .8rem; }
 
@@ -594,7 +596,7 @@ input[type="file"] { max-width: 100%; }
 .answer-review-nav { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.3rem; border-top: 1px solid var(--line); background: #f9fbfc; }
 .answer-review-nav button { min-width: 110px; min-height: 42px; padding: .6rem .9rem; border: 1px solid var(--line-strong); border-radius: 7px; background: #fff; font-weight: 700; }
 .answer-review-nav span { color: var(--muted); font-size: .8rem; font-weight: 700; }
-@media (max-width: 760px) { .exam-review-upload-grid { grid-template-columns: 1fr; } .exam-review-publish { align-items: stretch; flex-direction: column; } .answer-review-pair { grid-template-columns: 1fr; } .answer-review-pair > div { min-height: 85px; } .answer-review-head { flex-wrap: wrap; } }
+@media (max-width: 760px) { .exam-review-upload-grid, .exam-review-window { grid-template-columns: 1fr; } .exam-review-publish { align-items: stretch; flex-direction: column; } .answer-review-pair { grid-template-columns: 1fr; } .answer-review-pair > div { min-height: 85px; } .answer-review-head { flex-wrap: wrap; } }
 @media print { .answer-review-card, .answer-review-exam-picker { display: none !important; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }
 

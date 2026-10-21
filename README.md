@@ -344,6 +344,8 @@ Enrollment Number,Q1,Q2
 
 In the marks file, the same columns contain non-negative numbers or blank cells. Keep enrollment numbers as text in Excel to avoid losing leading zeros or precision. Import up to 1,000 students per file; split larger cohorts into multiple uploads. Preview errors must be resolved before importing. Uploads are private until an administrator explicitly publishes; students see only their own answer and mark, one question at a time, under **My answer reviews**. Blank answers and marks display as blank. Unpublish before correcting an uploaded file. The browser view disables ordinary text selection, copy, context menu and printing and includes an identity watermark, but browser code cannot prevent screenshots, developer tools, or a camera photo. Do not promise screenshot-proof results.
 
+Apply `202610210002_native_exam_review_window.sql` to enable optional opening and closing times. Set one or both times before publishing. Supabase checks the access window using server time; the student page also hides an already-open review when its closing time passes. A newly opened review may take up to 10 seconds to appear while the page is already open. Previously delivered content cannot be taken back from a browser, so the time limit controls new access rather than preventing a screenshot taken during the window.
+
 ### Transfer this update to another checkout
 
 Copy `classroomops-update-20261021.tar.gz` and `apply_classroomops_update.sh` into the other device's `ClassroomOps-Attendance` folder. From that folder run:

@@ -56,15 +56,22 @@ export type NativeExamReview = {
   updated_at: string
 }
 
+export type NativeExamReviewWindow = { exam_id: string; available_until: string | null }
+
 export async function loadNativeExamReviewAdmin(examId: string) {
   const client = requireSupabase()
   const [rows, publication] = await Promise.all([
     client.from('native_exam_reviews').select('*').eq('exam_id', examId),
-    client.from('native_exam_review_publications').select('published, published_at').eq('exam_id', examId).maybeSingle(),
+    client.from('native_exam_review_publications').select('published, published_at, available_from, available_until').eq('exam_id', examId).maybeSingle(),
   ])
   if (rows.error) throw rows.error
   if (publication.error) throw publication.error
-  return { rows: (rows.data ?? []) as NativeExamReview[], published: Boolean(publication.data?.published) }
+  return {
+    rows: (rows.data ?? []) as NativeExamReview[],
+    published: Boolean(publication.data?.published),
+    availableFrom: publication.data?.available_from as string | null ?? null,
+    availableUntil: publication.data?.available_until as string | null ?? null,
+  }
 }
 
 export async function importNativeExamReviews(examId: string, kind: ReviewKind, rows: ReviewImportRow[]) {
@@ -73,8 +80,11 @@ export async function importNativeExamReviews(examId: string, kind: ReviewKind, 
   return Number(data ?? 0)
 }
 
-export async function publishNativeExamReviews(examId: string, published: boolean) {
-  const { error } = await requireSupabase().from('native_exam_review_publications').upsert({ exam_id: examId, published, published_at: published ? new Date().toISOString() : null })
+export async function publishNativeExamReviews(examId: string, published: boolean, availableFrom: string | null, availableUntil: string | null) {
+  const { error } = await requireSupabase().from('native_exam_review_publications').upsert({
+    exam_id: examId, published, published_at: published ? new Date().toISOString() : null,
+    available_from: availableFrom, available_until: availableUntil,
+  })
   if (error) throw error
 }
 
@@ -86,15 +96,17 @@ export async function loadMyNativeExamReviews() {
   const { data: reviews, error: reviewError } = await client.from('native_exam_reviews').select('*').eq('student_id', user.user.id)
   if (reviewError) throw reviewError
   const rows = (reviews ?? []) as NativeExamReview[]
-  if (!rows.length) return { reviews: rows, exams: [] as NativeExam[], questions: [] as NativeQuestion[] }
+  if (!rows.length) return { reviews: rows, exams: [] as NativeExam[], questions: [] as NativeQuestion[], windows: [] as NativeExamReviewWindow[] }
   const examIds = rows.map((row) => row.exam_id)
-  const [exams, questions] = await Promise.all([
+  const [exams, questions, windows] = await Promise.all([
     client.from('native_exams').select('*').in('id', examIds),
     client.from('native_exam_questions').select('*').in('exam_id', examIds).order('position'),
+    client.from('native_exam_review_publications').select('exam_id, available_until').in('exam_id', examIds),
   ])
   if (exams.error) throw exams.error
   if (questions.error) throw questions.error
-  return { reviews: rows, exams: (exams.data ?? []) as NativeExam[], questions: (questions.data ?? []) as NativeQuestion[] }
+  if (windows.error) throw windows.error
+  return { reviews: rows, exams: (exams.data ?? []) as NativeExam[], questions: (questions.data ?? []) as NativeQuestion[], windows: (windows.data ?? []) as NativeExamReviewWindow[] }
 }
 
 export async function loadNativeExams() {

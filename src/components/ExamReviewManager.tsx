@@ -1,9 +1,15 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo, useState, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { Card, IconButton } from './Layout'
 import { previewExamReviewImport, type ReviewKind } from '../lib/examReviewImport'
 import { readTabularFile } from '../lib/importValidation'
 import { importNativeExamReviews, loadNativeExamReviewAdmin, publishNativeExamReviews, type NativeQuestion } from '../lib/nativeExams'
+
+function toLocalDateTime(value: string | null) {
+  if (!value) return ''
+  const date = new Date(value)
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+}
 
 export function ExamReviewManager({ examId, questions, students }: { examId: string; questions: NativeQuestion[]; students: Array<{ id: string; student_id?: string }> }) {
   const queryClient = useQueryClient()
@@ -14,10 +20,28 @@ export function ExamReviewManager({ examId, questions, students }: { examId: str
   const [marksFile, setMarksFile] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const [availableFrom, setAvailableFrom] = useState('')
+  const [availableUntil, setAvailableUntil] = useState('')
+  const [clock, setClock] = useState(Date.now())
   const answerPreview = useMemo(() => answerCsv ? previewExamReviewImport(answerCsv, 'answers', questions, students) : null, [answerCsv, questions, students])
   const marksPreview = useMemo(() => marksCsv ? previewExamReviewImport(marksCsv, 'marks', questions, students) : null, [marksCsv, questions, students])
   const readyCount = (data?.rows ?? []).filter((row) => Object.keys(row.answers).length === questions.length && Object.keys(row.marks).length === questions.length).length
   const incompleteCount = (data?.rows.length ?? 0) - readyCount
+  const status = !data?.published ? 'Private draft'
+    : data.availableFrom && clock < new Date(data.availableFrom).getTime() ? 'Scheduled'
+      : data.availableUntil && clock >= new Date(data.availableUntil).getTime() ? 'Closed'
+        : 'Live now'
+
+  useEffect(() => {
+    if (!data) return
+    setAvailableFrom(toLocalDateTime(data.availableFrom))
+    setAvailableUntil(toLocalDateTime(data.availableUntil))
+  }, [data])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(Date.now()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   async function readFile(event: ChangeEvent<HTMLInputElement>, kind: ReviewKind) {
     const file = event.target.files?.[0]
@@ -47,18 +71,23 @@ export function ExamReviewManager({ examId, questions, students }: { examId: str
   async function togglePublished() {
     if (!data) return
     const next = !data.published
-    if (next && !window.confirm(`Publish answers and marks for ${readyCount} student${readyCount === 1 ? '' : 's'}? Students will be able to view their own review.`)) return
+    const from = availableFrom ? new Date(availableFrom).toISOString() : null
+    const until = availableUntil ? new Date(availableUntil).toISOString() : null
+    if (next && from && until && new Date(until).getTime() <= new Date(from).getTime()) { setMessage('Review closing time must be after opening time.'); return }
+    if (next && until && new Date(until).getTime() <= Date.now()) { setMessage('Review closing time must be in the future.'); return }
+    const windowText = from || until ? ` Access ${from ? `starts ${new Date(from).toLocaleString('en-IN')}` : 'starts immediately'}${until ? ` and ends ${new Date(until).toLocaleString('en-IN')}` : ' with no closing time'}.` : ' Access stays open until you unpublish.'
+    if (next && !window.confirm(`Release answers and marks for ${readyCount} student${readyCount === 1 ? '' : 's'}?${windowText}`)) return
     setBusy(true)
     try {
-      await publishNativeExamReviews(examId, next)
+      await publishNativeExamReviews(examId, next, from, until)
       await queryClient.invalidateQueries({ queryKey: ['native-exam-review-admin', examId] })
-      setMessage(next ? 'Reviews published to students.' : 'Reviews hidden. You can edit the uploads now.')
+      setMessage(next ? from && new Date(from).getTime() > Date.now() ? 'Review access scheduled.' : 'Reviews released to students.' : 'Reviews hidden. You can edit the uploads now.')
     } catch (nextError) { setMessage(nextError instanceof Error ? nextError.message : 'Could not change publication.') }
     finally { setBusy(false) }
   }
 
   return <Card className="exam-review-manager">
-    <div className="section-title"><div><p className="eyebrow">After the exam</p><h2>Publish answer reviews</h2></div><span className={`status-pill ${data?.published ? 'good' : 'neutral'}`}>{data?.published ? 'Published' : 'Private draft'}</span></div>
+    <div className="section-title"><div><p className="eyebrow">After the exam</p><h2>Publish answer reviews</h2></div><span className={`status-pill ${status === 'Live now' ? 'good' : status === 'Scheduled' ? 'warn' : 'neutral'}`}>{status}</span></div>
     <p className="muted-copy">Upload two files for this exam: one with each student's answers, one with marks. The first column must be <strong>Enrollment Number</strong>; use each question as a column heading, or simply Q1, Q2, and so on. Blank cells stay blank. CSV and Excel are supported. Keep enrollment numbers formatted as text in Excel.</p>
     {error ? <p className="form-error">Could not load reviews. Apply the answer-review migration first.</p> : null}
     {message ? <p className="notice">{message}</p> : null}
@@ -75,6 +104,8 @@ export function ExamReviewManager({ examId, questions, students }: { examId: str
         </div>
       })}
     </div>
-    <div className="exam-review-publish"><p>{isLoading ? 'Checking uploads…' : `${readyCount} ready to view${incompleteCount ? ` · ${incompleteCount} missing an answers or marks file` : ''}`}</p><IconButton className={data?.published ? '' : 'primary'} disabled={busy || isLoading || Boolean(error) || (!data?.published && (!readyCount || incompleteCount > 0))} onClick={() => void togglePublished()}>{data?.published ? 'Unpublish reviews' : 'Publish to students'}</IconButton></div>
+    <div className="exam-review-window"><label>Access opens<input type="datetime-local" value={availableFrom} disabled={busy || data?.published} onChange={(event) => setAvailableFrom(event.target.value)} /></label><label>Access closes<input type="datetime-local" value={availableUntil} disabled={busy || data?.published} onChange={(event) => setAvailableUntil(event.target.value)} /></label></div>
+    <p className="muted-copy">Leave either time blank for no bound on that side. Times use this computer's local timezone; access is enforced using server time.</p>
+    <div className="exam-review-publish"><p>{isLoading ? 'Checking uploads…' : `${readyCount} ready to view${incompleteCount ? ` · ${incompleteCount} missing an answers or marks file` : ''}`}</p><IconButton className={data?.published ? '' : 'primary'} disabled={busy || isLoading || Boolean(error) || (!data?.published && (!readyCount || incompleteCount > 0))} onClick={() => void togglePublished()}>{data?.published ? 'Unpublish reviews' : availableFrom ? 'Schedule review access' : 'Publish to students'}</IconButton></div>
   </Card>
 }

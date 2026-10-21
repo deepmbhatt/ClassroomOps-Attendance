@@ -3,13 +3,15 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../auth'
 import { Card, PageHeader, Spinner } from '../components/Layout'
 import { loadMyNativeExamReviews } from '../lib/nativeExams'
+import { isReviewWindowOpen } from '../lib/reviewWindow'
 
 export function StudentAnswerReview() {
   const auth = useAuth()
-  const { data, isLoading, error } = useQuery({ queryKey: ['my-native-exam-reviews'], queryFn: loadMyNativeExamReviews })
+  const { data, isLoading, error } = useQuery({ queryKey: ['my-native-exam-reviews'], queryFn: loadMyNativeExamReviews, refetchInterval: 10_000 })
   const [examId, setExamId] = useState('')
   const [questionIndex, setQuestionIndex] = useState(0)
   const [visible, setVisible] = useState(!document.hidden)
+  const [clock, setClock] = useState(Date.now())
 
   useEffect(() => {
     const update = () => setVisible(!document.hidden && document.hasFocus())
@@ -19,9 +21,17 @@ export function StudentAnswerReview() {
     return () => { document.removeEventListener('visibilitychange', update); window.removeEventListener('focus', update); window.removeEventListener('blur', update) }
   }, [])
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+
   if (isLoading) return <Spinner />
   if (error) return <Card><p className="form-error">Could not load answer reviews. Ask staff to apply the latest Supabase migration.</p></Card>
-  const available = data?.reviews ?? []
+  const available = (data?.reviews ?? []).filter((row) => {
+    const accessWindow = data?.windows.find((item) => item.exam_id === row.exam_id)
+    return accessWindow && isReviewWindowOpen(null, accessWindow.available_until, clock)
+  })
   const selected = available.find((row) => row.exam_id === examId) ?? available[0]
   const questions = (data?.questions ?? []).filter((question) => question.exam_id === selected?.exam_id).sort((a, b) => a.position - b.position)
   const question = questions[Math.min(questionIndex, Math.max(0, questions.length - 1))]
@@ -31,7 +41,7 @@ export function StudentAnswerReview() {
 
   return <>
     <PageHeader eyebrow="Private exam review" title="My answers and marks">Review one question at a time. Empty answers and ungraded marks are shown as blank.</PageHeader>
-    {!selected ? <Card><h2>No reviews published yet</h2><p>Your answers and marks appear here only after an administrator publishes them.</p></Card> : <>
+    {!selected ? <Card><h2>No review available right now</h2><p>Your answers and marks appear here only during the access period set by an administrator.</p></Card> : <>
       {available.length > 1 ? <label className="answer-review-exam-picker">Exam<select value={selected.exam_id} onChange={(event) => { setExamId(event.target.value); setQuestionIndex(0) }}>{available.map((row) => <option key={row.exam_id} value={row.exam_id}>{data?.exams.find((item) => item.id === row.exam_id)?.title ?? 'Exam'}</option>)}</select></label> : null}
       <section className="answer-review-card" tabIndex={0} aria-label="Answer review" onCopy={(event) => event.preventDefault()} onCut={(event) => event.preventDefault()} onContextMenu={(event) => event.preventDefault()} onDragStart={(event) => event.preventDefault()} onKeyDown={(event) => {
         if ((event.ctrlKey || event.metaKey) && ['a', 'c', 'p', 's'].includes(event.key.toLowerCase())) event.preventDefault()
