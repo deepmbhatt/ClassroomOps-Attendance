@@ -11,6 +11,7 @@ export type NativeExam = {
   duration_minutes: number
   warning_limit: number
   attendance_session_id: string | null
+  allow_without_attendance: boolean
   code_mode: 'none' | 'entry' | 'entry_exit'
   exit_transform: 'reverse' | 'add' | 'subtract'
   exit_operand: number

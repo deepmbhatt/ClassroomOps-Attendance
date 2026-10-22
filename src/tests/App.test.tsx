@@ -39,6 +39,8 @@ describe('App', () => {
     expect(screen.getByLabelText('Option 1')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Add next question/i }))
     expect(screen.getByText(/Questions \(2\)/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/Allow enrolled students to take this exam regardless of attendance/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/Load questions from CSV\/Excel/i)).toBeInTheDocument()
   })
 
   it('offers review-only setup for an exam held outside the app', async () => {

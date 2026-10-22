@@ -5,13 +5,14 @@ import { Card, IconButton, PageHeader, Spinner } from '../components/Layout'
 import { ExamReviewManager } from '../components/ExamReviewManager'
 import { loadAppData } from '../lib/api'
 import { readTabularFile } from '../lib/importValidation'
+import { importExamQuestions } from '../lib/examQuestionImport'
 import { pastQuestionHeadings } from '../lib/pastQuestionHeadings'
 import { deleteNativeExam, getNativeFaceCode, loadNativeExamReviewAdmin, loadNativeExams, saveNativeExam, saveNativeQuestions, setNativeAccess, type NativeExam, type NativeQuestion } from '../lib/nativeExams'
 
 type QuestionEdit = { id?: string; prompt: string; question_type: NativeQuestion['question_type']; options: string[] }
 type ExamEdit = Omit<NativeExam, 'id' | 'instructions'> & { instructions: string }
 
-const emptyExam: ExamEdit = { title: '', course_id: '', instructions: '', starts_at: '', ends_at: '', duration_minutes: 60, warning_limit: 1, attendance_session_id: null, code_mode: 'none', exit_transform: 'reverse', exit_operand: 0, status: 'draft', review_only: false, held_on: null }
+const emptyExam: ExamEdit = { title: '', course_id: '', instructions: '', starts_at: '', ends_at: '', duration_minutes: 60, warning_limit: 1, attendance_session_id: null, allow_without_attendance: false, code_mode: 'none', exit_transform: 'reverse', exit_operand: 0, status: 'draft', review_only: false, held_on: null }
 const emptyQuestion = (): QuestionEdit => ({ prompt: '', question_type: 'descriptive', options: [] })
 
 function localDate(iso?: string) {
@@ -30,7 +31,7 @@ export function NativeExamAdmin() {
   const auth = useAuth()
   const queryClient = useQueryClient()
   const { data: app, isLoading: appLoading } = useQuery({ queryKey: ['app-data'], queryFn: loadAppData })
-  const { data, isLoading, error } = useQuery({ queryKey: ['native-exams'], queryFn: loadNativeExams })
+  const { data, isLoading, error } = useQuery({ queryKey: ['native-exams', auth.session?.user.id, auth.role], queryFn: loadNativeExams })
   const [selectedId, setSelectedId] = useState('new')
   const [edit, setEdit] = useState(emptyExam)
   const [questions, setQuestions] = useState<QuestionEdit[]>([emptyQuestion()])
@@ -62,7 +63,7 @@ export function NativeExamAdmin() {
       title: selected.title, course_id: selected.course_id, instructions: selected.instructions ?? '',
       starts_at: localDate(selected.starts_at), ends_at: localDate(selected.ends_at),
       duration_minutes: selected.duration_minutes, warning_limit: selected.warning_limit,
-      attendance_session_id: selected.attendance_session_id, code_mode: selected.code_mode ?? 'none',
+      attendance_session_id: selected.attendance_session_id, allow_without_attendance: selected.allow_without_attendance ?? false, code_mode: selected.code_mode ?? 'none',
       exit_transform: selected.exit_transform ?? 'reverse', exit_operand: selected.exit_operand ?? 0, status: selected.status,
       review_only: selected.review_only ?? false, held_on: selected.held_on ?? null,
     })
@@ -88,8 +89,8 @@ export function NativeExamAdmin() {
       question_type: edit.review_only ? 'descriptive' as const : question.question_type,
       options: !edit.review_only && question.question_type === 'mcq' ? question.options.map((option) => option.trim()) : [],
     }))
-    if (!edit.title.trim() || !edit.course_id || !cleanQuestions.length || (edit.review_only ? !edit.held_on : !edit.attendance_session_id || !edit.starts_at || !edit.ends_at)) {
-      setMessage(edit.review_only ? 'Title, course, past exam date, and at least one question are required.' : 'Title, course, face-attendance session, opening and closing times, and at least one question are required.')
+    if (!edit.title.trim() || !edit.course_id || !cleanQuestions.length || (edit.review_only ? !edit.held_on : !edit.allow_without_attendance && !edit.attendance_session_id || !edit.starts_at || !edit.ends_at)) {
+      setMessage(edit.review_only ? 'Title, course, past exam date, and at least one question are required.' : 'Title, course, opening and closing times, and at least one question are required. Choose an attendance session unless attendance is optional.')
       return
     }
     if (cleanQuestions.some((question) => !question.prompt || (question.question_type === 'mcq' &&
@@ -124,7 +125,7 @@ export function NativeExamAdmin() {
         title: edit.title.trim(), course_id: edit.course_id, instructions: edit.instructions.trim(),
         starts_at: startsAt.toISOString(), ends_at: endsAt.toISOString(),
         duration_minutes: edit.review_only ? 60 : Number(edit.duration_minutes), warning_limit: edit.review_only ? 1 : edit.warning_limit,
-        attendance_session_id: edit.review_only ? null : edit.attendance_session_id, code_mode: edit.review_only ? 'none' : edit.code_mode,
+        attendance_session_id: edit.review_only ? null : edit.attendance_session_id, allow_without_attendance: !edit.review_only && edit.allow_without_attendance, code_mode: edit.review_only || edit.allow_without_attendance ? 'none' : edit.code_mode,
         exit_transform: edit.review_only ? 'reverse' : edit.exit_transform, exit_operand: edit.review_only ? 0 : edit.exit_operand,
         status: edit.review_only ? 'closed' : edit.status,
         review_only: edit.review_only, held_on: edit.review_only ? edit.held_on : null,
@@ -154,13 +155,16 @@ export function NativeExamAdmin() {
     finally { setBusy(false) }
   }
 
-  async function loadPastQuestionHeadings(event: ChangeEvent<HTMLInputElement>) {
+  async function loadQuestionHeadings(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     if (!file) return
     try {
-      const prompts = pastQuestionHeadings(await readTabularFile(file))
-      setQuestions(prompts.map((prompt) => ({ prompt, question_type: 'descriptive', options: [] })))
-      setMessage(`${prompts.length} question headings loaded in Q-number order. Check their text, then save the past exam.`)
+      const csv = await readTabularFile(file)
+      const imported = edit.review_only
+        ? pastQuestionHeadings(csv).map((prompt) => ({ prompt, question_type: 'descriptive' as const, options: [] }))
+        : importExamQuestions(csv)
+      setQuestions(imported)
+      setMessage(`${imported.length} questions loaded. Check their text and types, then save the exam.`)
     } catch (nextError) { setMessage(nextError instanceof Error ? nextError.message : 'Could not load question headings.') }
     finally { event.target.value = '' }
   }
@@ -225,20 +229,21 @@ export function NativeExamAdmin() {
         <label>Title<input value={edit.title} onChange={(event) => setEdit({ ...edit, title: event.target.value })} /></label>
         <label>Course<select value={edit.course_id} disabled={questionsLocked} onChange={(event) => setEdit({ ...edit, course_id: event.target.value, attendance_session_id: null })}><option value="">Select course</option>{app?.courses.map((course) => <option key={course.id} value={course.id}>{course.code} — {course.title}</option>)}</select></label>
         {edit.review_only ? <label>Past exam date<input type="date" value={edit.held_on ?? ''} onChange={(event) => setEdit({ ...edit, held_on: event.target.value || null })} /></label> : <>
-        <label>Face-attendance session<select value={edit.attendance_session_id ?? ''} disabled={attempts.length > 0} onChange={(event) => setEdit({ ...edit, attendance_session_id: event.target.value || null })}><option value="">Select session</option>{availableSessions.map((lecture) => <option key={lecture.id} value={lecture.id}>{lecture.title} · {new Date(lecture.started_at).toLocaleString('en-IN')}</option>)}</select></label>
+        <label>Face-attendance session<select value={edit.attendance_session_id ?? ''} disabled={attempts.length > 0 || edit.allow_without_attendance} onChange={(event) => setEdit({ ...edit, attendance_session_id: event.target.value || null })}><option value="">Select session</option>{availableSessions.map((lecture) => <option key={lecture.id} value={lecture.id}>{lecture.title} · {new Date(lecture.started_at).toLocaleString('en-IN')}</option>)}</select></label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}><input type="checkbox" style={{ width: 'auto' }} checked={edit.allow_without_attendance} disabled={attempts.length > 0} onChange={(event) => setEdit({ ...edit, allow_without_attendance: event.target.checked, code_mode: event.target.checked ? 'none' : edit.code_mode })} />Allow enrolled students to take this exam regardless of attendance</label>
         <label>Opens<input type="datetime-local" value={edit.starts_at} onChange={(event) => setEdit({ ...edit, starts_at: event.target.value })} /></label>
         <label>Closes<input type="datetime-local" value={edit.ends_at} onChange={(event) => setEdit({ ...edit, ends_at: event.target.value })} /></label>
         <label>Duration (minutes)<input type="number" min="1" max="360" value={edit.duration_minutes} onChange={(event) => setEdit({ ...edit, duration_minutes: Number(event.target.value) })} /></label>
         <label>Auto-submit after warnings<input type="number" min="1" max="10" disabled={attempts.length > 0} value={edit.warning_limit} onChange={(event) => setEdit({ ...edit, warning_limit: Number(event.target.value) })} /></label>
-        <label>Attendance code check<select value={edit.code_mode} disabled={attempts.length > 0} onChange={(event) => setEdit({ ...edit, code_mode: event.target.value as NativeExam['code_mode'] })}><option value="none">No code (face attendance only)</option><option value="entry">4-digit entry code</option><option value="entry_exit">Entry and transformed exit code</option></select></label>
+        <label>Attendance code check<select value={edit.code_mode} disabled={attempts.length > 0 || edit.allow_without_attendance} onChange={(event) => setEdit({ ...edit, code_mode: event.target.value as NativeExam['code_mode'] })}><option value="none">No entry code</option><option value="entry">4-digit entry code</option><option value="entry_exit">Entry and transformed exit code</option></select></label>
         {edit.code_mode === 'entry_exit' ? <><label>Exit code rule<select value={edit.exit_transform} onChange={(event) => setEdit({ ...edit, exit_transform: event.target.value as NativeExam['exit_transform'] })}><option value="reverse">Reverse the four digits</option><option value="add">Add a number, modulo 10000</option><option value="subtract">Subtract a number, modulo 10000</option></select></label>{edit.exit_transform !== 'reverse' ? <label>Number to add/subtract<input type="number" min="0" max="9999" value={edit.exit_operand} onChange={(event) => setEdit({ ...edit, exit_operand: Number(event.target.value) })} /></label> : null}</> : null}
-        <label>Status<select value={edit.status} onChange={(event) => setEdit({ ...edit, status: event.target.value as NativeExam['status'] })}><option value="draft">Draft</option><option value="open">Open</option><option value="closed">Closed</option></select></label>
+        <label>Status<select value={edit.status} onChange={(event) => setEdit({ ...edit, status: event.target.value as NativeExam['status'] })}><option value="draft">Draft</option><option value="open">Open or scheduled (uses opening time)</option><option value="closed">Closed</option></select></label>
         </>}
       </div>
       {!edit.review_only ? <label>Instructions<textarea value={edit.instructions} onChange={(event) => setEdit({ ...edit, instructions: event.target.value })} /></label> : <p className="muted-copy">Past exams are review-only. Students will not see them in the exam-taking screen.</p>}
       <h2>Questions ({questions.length})</h2>
       <p className="muted-copy">{edit.review_only ? 'Enter the question text in the same order as your Q1, Q2, etc. CSV columns. Save before uploading answers and marks.' : 'Add each question, choose its type, then save the exam. An MCQ records one selected option.'}</p>
-      {edit.review_only && !questionsLocked ? <label className="past-question-upload">Load question headings from an answers CSV/Excel file<input type="file" accept=".csv,.xlsx,.xls,text/csv" onChange={(event) => void loadPastQuestionHeadings(event)} /></label> : null}
+      {!questionsLocked ? <label className="past-question-upload">Load questions from CSV/Excel<input type="file" accept=".csv,.xlsx,.xls,text/csv" onChange={(event) => void loadQuestionHeadings(event)} /><small>{edit.review_only ? 'Use Enrollment Number and one column per question.' : 'Use Question, Type, Option 1, Option 2, etc. with one question per row, or an Enrollment Number sheet with question headings. Types can be edited below.'}</small></label> : null}
       {questions.map((question, index) => <div className="native-question-edit" key={question.id ?? `new-${index}`}>
         <div className="native-question-fields">
           <label>Question {index + 1}<textarea value={question.prompt} disabled={questionsLocked} onChange={(event) => setQuestions(questions.map((item, position) => position === index ? { ...item, prompt: event.target.value } : item))} /></label>
@@ -251,13 +256,13 @@ export function NativeExamAdmin() {
       {questionsLocked ? <p className="muted-copy">Questions are locked because a student started or an answer review was imported.</p> : null}
     </Card>
     {selected && !selected.review_only ? <Card>
-      <div className="section-title"><div><p className="eyebrow">Access and responses</p><h2>Face-attendance eligibility</h2></div><IconButton onClick={() => void exportCsv()} disabled={busy}>Download combined CSV</IconButton></div>
-      <p className="muted-copy">Only face-verified present/late students from the selected session can start. A four-digit code is displayed at the attendance terminal after recognition when code checks are enabled. Each student gets one attempt.</p>
+      <div className="section-title"><div><p className="eyebrow">Access and responses</p><h2>Exam eligibility</h2></div><IconButton onClick={() => void exportCsv()} disabled={busy}>Download combined CSV</IconButton></div>
+      <p className="muted-copy">{selected.allow_without_attendance ? 'All approved students enrolled in this course can start during the exam window, regardless of attendance.' : 'Face-verified present or late attendance in the selected session grants access automatically. A four-digit code appears at the attendance terminal when code checks are enabled.'} Each student gets one attempt.</p>
       <label>Find student<input value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="Name or student ID" /></label>
       <div className="table-scroll"><table><thead><tr><th>Student</th><th>Access</th><th>Attempt</th><th>Action</th></tr></thead><tbody>{visibleStudents.map((student) => {
-        const granted = selected.attendance_session_id ? faceApprovedIds.has(student.id) : access.some((item) => item.student_id === student.id)
+        const granted = selected.allow_without_attendance || (selected.attendance_session_id ? faceApprovedIds.has(student.id) : access.some((item) => item.student_id === student.id))
         const attempt = attempts.find((item) => item.student_id === student.id)
-        return <tr key={student.id}><td>{student.full_name}<small>{student.student_id}</small></td><td>{granted ? 'Face verified' : 'Waiting for face attendance'}</td><td>{attempt?.status ?? 'Not started'}</td><td>{selected.attendance_session_id ? granted && selected.code_mode !== 'none' ? <button onClick={() => void getNativeFaceCode(selected.attendance_session_id!, student.id).then((code) => setShownCodes((current) => ({ ...current, [student.id]: code ?? 'Not issued' }))).catch((nextError) => setMessage(nextError instanceof Error ? nextError.message : 'Could not load code'))}>{shownCodes[student.id] ?? 'Show code'}</button> : '—' : <button disabled={busy} onClick={() => void approve(student.id, !granted)}>{granted ? 'Remove access' : 'Approve'}</button>}</td></tr>
+        return <tr key={student.id}><td>{student.full_name}<small>{student.student_id}</small></td><td>{selected.allow_without_attendance ? 'Enrolled' : granted ? 'Face verified' : 'Waiting for face attendance'}</td><td>{attempt?.status ?? 'Not started'}</td><td>{selected.allow_without_attendance ? '—' : selected.attendance_session_id ? granted && selected.code_mode !== 'none' ? <button onClick={() => void getNativeFaceCode(selected.attendance_session_id!, student.id).then((code) => setShownCodes((current) => ({ ...current, [student.id]: code ?? 'Not issued' }))).catch((nextError) => setMessage(nextError instanceof Error ? nextError.message : 'Could not load code'))}>{shownCodes[student.id] ?? 'Show code'}</button> : '—' : <button disabled={busy} onClick={() => void approve(student.id, !granted)}>{granted ? 'Remove access' : 'Approve'}</button>}</td></tr>
       })}</tbody></table></div>
     </Card> : null}
     {selected && auth.role === 'admin' ? <ExamReviewManager key={selected.id} examId={selected.id} questions={savedQuestions} students={eligibleStudents} /> : null}
