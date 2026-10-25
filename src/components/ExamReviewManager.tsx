@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { Card, IconButton } from './Layout'
 import { previewExamReviewImport, type ReviewKind } from '../lib/examReviewImport'
 import { readTabularFile } from '../lib/importValidation'
+import { reviewFlagsCsv } from '../lib/reviewFlagsCsv'
 import { importNativeExamReviews, loadNativeExamReviewAdmin, publishNativeExamReviews, type NativeQuestion } from '../lib/nativeExams'
 
 function toLocalDateTime(value: string | null) {
@@ -11,7 +12,7 @@ function toLocalDateTime(value: string | null) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
 }
 
-export function ExamReviewManager({ examId, questions, students }: { examId: string; questions: NativeQuestion[]; students: Array<{ id: string; student_id?: string }> }) {
+export function ExamReviewManager({ examId, examTitle, questions, students }: { examId: string; examTitle: string; questions: NativeQuestion[]; students: Array<{ id: string; student_id?: string; full_name?: string }> }) {
   const queryClient = useQueryClient()
   const { data, isLoading, error } = useQuery({ queryKey: ['native-exam-review-admin', examId], queryFn: () => loadNativeExamReviewAdmin(examId) })
   const [answerCsv, setAnswerCsv] = useState('')
@@ -86,6 +87,26 @@ export function ExamReviewManager({ examId, questions, students }: { examId: str
     finally { setBusy(false) }
   }
 
+  async function downloadFlags() {
+    setBusy(true)
+    try {
+      const latest = await loadNativeExamReviewAdmin(examId)
+      await queryClient.invalidateQueries({ queryKey: ['native-exam-review-admin', examId] })
+      if (!latest.flags.length) { setMessage('No student responses have been flagged for this exam.'); return }
+      const csv = reviewFlagsCsv(latest.flags, questions, latest.rows, students)
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${examTitle.replace(/[^a-z0-9-_]+/gi, '-')}-flagged-reviews.csv`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      setMessage(`${latest.flags.length} flagged response${latest.flags.length === 1 ? '' : 's'} exported.`)
+    } catch (nextError) { setMessage(nextError instanceof Error ? nextError.message : 'Could not download flagged reviews.') }
+    finally { setBusy(false) }
+  }
+
   return <Card className="exam-review-manager">
     <div className="section-title"><div><p className="eyebrow">After the exam</p><h2>Publish answer reviews</h2></div><span className={`status-pill ${status === 'Live now' ? 'good' : status === 'Scheduled' ? 'warn' : 'neutral'}`}>{status}</span></div>
     <p className="muted-copy">Upload two files for this exam: one with each student's answers, one with marks. The first column must be <strong>Enrollment Number</strong>; use each question as a column heading, or simply Q1, Q2, and so on. Blank cells stay blank. CSV and Excel are supported. Keep enrollment numbers formatted as text in Excel.</p>
@@ -107,5 +128,6 @@ export function ExamReviewManager({ examId, questions, students }: { examId: str
     <div className="exam-review-window"><label>Access opens<input type="datetime-local" value={availableFrom} disabled={busy || data?.published} onChange={(event) => setAvailableFrom(event.target.value)} /></label><label>Access closes<input type="datetime-local" value={availableUntil} disabled={busy || data?.published} onChange={(event) => setAvailableUntil(event.target.value)} /></label></div>
     <p className="muted-copy">Leave either time blank for no bound on that side. Times use this computer's local timezone; access is enforced using server time.</p>
     <div className="exam-review-publish"><p>{isLoading ? 'Checking uploads…' : `${readyCount} ready to view${incompleteCount ? ` · ${incompleteCount} missing an answers or marks file` : ''}`}</p><IconButton className={data?.published ? '' : 'primary'} disabled={busy || isLoading || Boolean(error) || (!data?.published && (!readyCount || incompleteCount > 0))} onClick={() => void togglePublished()}>{data?.published ? 'Unpublish reviews' : availableFrom ? 'Schedule review access' : 'Publish to students'}</IconButton></div>
+    <div className="exam-review-publish"><p>Recheck requests: {data?.flags.length ?? 0}. The CSV includes only flagged questions, with each student's answer, mark, and reason.</p><IconButton disabled={busy || isLoading || Boolean(error)} onClick={() => void downloadFlags()}>Download flagged reviews CSV</IconButton></div>
   </Card>
 }

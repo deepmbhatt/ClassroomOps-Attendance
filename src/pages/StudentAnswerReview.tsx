@@ -1,14 +1,41 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../auth'
 import { Card, PageHeader, Spinner } from '../components/Layout'
-import { loadMyNativeExamReviews } from '../lib/nativeExams'
+import { flagNativeExamReview, loadMyNativeExamReviews, type NativeExamReviewFlag } from '../lib/nativeExams'
 import { orderReviewQuestions } from '../lib/reviewQuestionOrder'
 import { isReviewWindowOpen } from '../lib/reviewWindow'
 
+function ReviewFlagForm({ examId, questionId, existing }: { examId: string; questionId: string; existing?: NativeExamReviewFlag }) {
+  const queryClient = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState(existing?.reason ?? '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function saveFlag() {
+    const clean = reason.trim()
+    if (!clean || clean.length > 500) { setError('Enter a reason of 1 to 500 characters.'); return }
+    setBusy(true)
+    setError('')
+    try {
+      await flagNativeExamReview(examId, questionId, clean)
+      await queryClient.invalidateQueries({ queryKey: ['my-native-exam-reviews'] })
+      setOpen(false)
+    } catch (nextError) { setError(nextError instanceof Error ? nextError.message : 'Could not save your recheck request.') }
+    finally { setBusy(false) }
+  }
+
+  return <div className="answer-review-flag">
+    {existing ? <><p><strong>Flagged for recheck.</strong> Your reason: {existing.reason}</p><button type="button" onClick={() => { setReason(existing.reason); setOpen(true) }} disabled={busy}>Edit reason</button></>
+      : !open ? <button type="button" onClick={() => setOpen(true)}>Flag this response for recheck</button> : null}
+    {open ? <div className="answer-review-flag-form"><label>Why should this answer be rechecked?<textarea value={reason} maxLength={500} rows={3} onChange={(event) => setReason(event.target.value)} placeholder="Briefly explain the marking concern" /></label><small>{reason.length}/500 characters</small>{error ? <p className="form-error">{error}</p> : null}<div><button type="button" disabled={busy || !reason.trim()} onClick={() => void saveFlag()}>{busy ? 'Saving…' : 'Send recheck request'}</button><button type="button" disabled={busy} onClick={() => { setOpen(false); setError('') }}>Cancel</button></div></div> : null}
+  </div>
+}
+
 export function StudentAnswerReview() {
   const auth = useAuth()
-  const { data, isLoading, error } = useQuery({ queryKey: ['my-native-exam-reviews'], queryFn: loadMyNativeExamReviews, refetchInterval: 10_000 })
+  const { data, isLoading, error } = useQuery({ queryKey: ['my-native-exam-reviews', auth.session?.user.id], queryFn: loadMyNativeExamReviews, refetchInterval: 10_000 })
   const [examId, setExamId] = useState('')
   const [questionIndex, setQuestionIndex] = useState(0)
   const [visible, setVisible] = useState(!document.hidden)
@@ -38,14 +65,16 @@ export function StudentAnswerReview() {
   const question = questions[Math.min(questionIndex, Math.max(0, questions.length - 1))]
   const answer = question ? selected?.answers[question.id] ?? '' : ''
   const mark = question ? selected?.marks[question.id] : null
+  const flag = question ? data?.flags.find((item) => item.exam_id === selected?.exam_id && item.question_id === question.id) : undefined
   const exam = data?.exams.find((item) => item.id === selected?.exam_id)
 
   return <>
-    <PageHeader eyebrow="Private exam review" title="My answers and marks">Review one question at a time. Empty answers and ungraded marks are shown as blank.</PageHeader>
+    <PageHeader eyebrow="Private exam review" title="My answers and marks">Review one question at a time. Flag any answer you want rechecked and add a short reason. Empty answers and ungraded marks are shown as blank.</PageHeader>
     {!selected ? <Card><h2>No review available right now</h2><p>Your answers and marks appear here only during the access period set by an administrator.</p></Card> : <>
       {available.length > 1 ? <label className="answer-review-exam-picker">Exam<select value={selected.exam_id} onChange={(event) => { setExamId(event.target.value); setQuestionIndex(0) }}>{available.map((row) => <option key={row.exam_id} value={row.exam_id}>{data?.exams.find((item) => item.id === row.exam_id)?.title ?? 'Exam'}</option>)}</select></label> : null}
       <section className="answer-review-card" tabIndex={0} aria-label="Answer review" onCopy={(event) => event.preventDefault()} onCut={(event) => event.preventDefault()} onContextMenu={(event) => event.preventDefault()} onDragStart={(event) => event.preventDefault()} onKeyDown={(event) => {
         if ((event.ctrlKey || event.metaKey) && ['a', 'c', 'p', 's'].includes(event.key.toLowerCase())) event.preventDefault()
+        if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return
         if (event.key === 'ArrowLeft' && questionIndex > 0) setQuestionIndex(questionIndex - 1)
         if (event.key === 'ArrowRight' && questionIndex < questions.length - 1) setQuestionIndex(questionIndex + 1)
       }}>
@@ -54,6 +83,7 @@ export function StudentAnswerReview() {
           <div className="answer-review-watermark" aria-hidden="true">{auth.session?.user.email ?? 'Private review'}</div>
           <h2>{question.prompt}</h2>
           <div className="answer-review-pair"><div><span className="eyebrow">Your answer</span><p>{answer || '\u00a0'}</p></div><div><span className="eyebrow">Marks</span><p>{mark === null || mark === undefined ? '\u00a0' : mark}</p></div></div>
+          <ReviewFlagForm key={`${selected?.exam_id ?? ''}:${question.id}`} examId={selected?.exam_id ?? ''} questionId={question.id} existing={flag} />
         </div> : <p>No saved questions were found for this review.</p>}
         <div className="answer-review-nav"><button type="button" disabled={questionIndex <= 0} onClick={() => setQuestionIndex((index) => index - 1)}>← Previous</button><span>{question ? `${questionIndex + 1} / ${questions.length}` : '0 / 0'}</span><button type="button" disabled={questionIndex >= questions.length - 1} onClick={() => setQuestionIndex((index) => index + 1)}>Next →</button></div>
       </section>

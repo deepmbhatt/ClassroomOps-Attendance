@@ -60,17 +60,28 @@ export type NativeExamReview = {
 }
 
 export type NativeExamReviewWindow = { exam_id: string; available_until: string | null }
+export type NativeExamReviewFlag = {
+  exam_id: string
+  student_id: string
+  question_id: string
+  reason: string
+  created_at: string
+  updated_at: string
+}
 
 export async function loadNativeExamReviewAdmin(examId: string) {
   const client = requireSupabase()
-  const [rows, publication] = await Promise.all([
+  const [rows, publication, flags] = await Promise.all([
     client.from('native_exam_reviews').select('*').eq('exam_id', examId),
     client.from('native_exam_review_publications').select('published, published_at, available_from, available_until').eq('exam_id', examId).maybeSingle(),
+    client.from('native_exam_review_flags').select('*').eq('exam_id', examId).order('updated_at', { ascending: false }),
   ])
   if (rows.error) throw rows.error
   if (publication.error) throw publication.error
+  if (flags.error) throw flags.error
   return {
     rows: (rows.data ?? []) as NativeExamReview[],
+    flags: (flags.data ?? []) as NativeExamReviewFlag[],
     published: Boolean(publication.data?.published),
     availableFrom: publication.data?.available_from as string | null ?? null,
     availableUntil: publication.data?.available_until as string | null ?? null,
@@ -91,6 +102,13 @@ export async function publishNativeExamReviews(examId: string, published: boolea
   if (error) throw error
 }
 
+export async function flagNativeExamReview(examId: string, questionId: string, reason: string) {
+  const { error } = await requireSupabase().rpc('native_flag_exam_review', {
+    p_exam_id: examId, p_question_id: questionId, p_reason: reason,
+  })
+  if (error) throw error
+}
+
 export async function loadMyNativeExamReviews() {
   const client = requireSupabase()
   const { data: user, error: userError } = await client.auth.getUser()
@@ -99,17 +117,19 @@ export async function loadMyNativeExamReviews() {
   const { data: reviews, error: reviewError } = await client.from('native_exam_reviews').select('*').eq('student_id', user.user.id)
   if (reviewError) throw reviewError
   const rows = (reviews ?? []) as NativeExamReview[]
-  if (!rows.length) return { reviews: rows, exams: [] as NativeExam[], questions: [] as NativeQuestion[], windows: [] as NativeExamReviewWindow[] }
+  if (!rows.length) return { reviews: rows, exams: [] as NativeExam[], questions: [] as NativeQuestion[], windows: [] as NativeExamReviewWindow[], flags: [] as NativeExamReviewFlag[] }
   const examIds = rows.map((row) => row.exam_id)
-  const [exams, questions, windows] = await Promise.all([
+  const [exams, questions, windows, flags] = await Promise.all([
     client.from('native_exams').select('*').in('id', examIds),
     client.from('native_exam_questions').select('*').in('exam_id', examIds).order('position'),
     client.from('native_exam_review_publications').select('exam_id, available_until').in('exam_id', examIds),
+    client.from('native_exam_review_flags').select('*').eq('student_id', user.user.id).in('exam_id', examIds),
   ])
   if (exams.error) throw exams.error
   if (questions.error) throw questions.error
   if (windows.error) throw windows.error
-  return { reviews: rows, exams: (exams.data ?? []) as NativeExam[], questions: (questions.data ?? []) as NativeQuestion[], windows: (windows.data ?? []) as NativeExamReviewWindow[] }
+  if (flags.error) throw flags.error
+  return { reviews: rows, exams: (exams.data ?? []) as NativeExam[], questions: (questions.data ?? []) as NativeQuestion[], windows: (windows.data ?? []) as NativeExamReviewWindow[], flags: (flags.data ?? []) as NativeExamReviewFlag[] }
 }
 
 export async function loadNativeExams() {
