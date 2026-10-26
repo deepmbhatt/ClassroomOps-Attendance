@@ -587,8 +587,9 @@ input[type="file"] { max-width: 100%; }
 .exam-review-publish { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
 .exam-review-publish p { margin: 0; color: var(--muted); font-size: .8rem; }
 
-.answer-review-exam-picker { max-width: 420px; margin-bottom: .85rem; }
-.answer-review-card { position: relative; width: 100%; max-width: 1040px; height: clamp(540px, 70dvh, 740px); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); box-shadow: 0 8px 28px rgb(15 27 43 / 5%); user-select: none; -webkit-user-select: none; }
+.answer-review-page { min-height: calc(100dvh - 60px - 6rem); display: flex; flex-direction: column; }
+.answer-review-exam-picker { flex: none; max-width: 420px; margin-bottom: .85rem; }
+.answer-review-card { position: relative; flex: 1 1 0; width: 100%; min-height: 500px; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); box-shadow: 0 8px 28px rgb(15 27 43 / 5%); user-select: none; -webkit-user-select: none; }
 .answer-review-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 62px; padding: .9rem 1.4rem; border-bottom: 1px solid var(--line); color: var(--muted); font-size: .82rem; }
 .answer-review-head span { min-width: 0; overflow: hidden; font-weight: 750; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; }
 .answer-review-head strong { flex: none; }
@@ -626,8 +627,9 @@ input[type="file"] { max-width: 100%; }
 .answer-review-nav button:last-child:not(:disabled) { border-color: var(--accent-dark); background: var(--accent-dark); color: #fff; }
 .answer-review-nav button:last-child:hover:not(:disabled) { border-color: var(--accent); background: var(--accent); }
 .answer-review-nav span { color: var(--muted); font-size: .8rem; font-weight: 700; white-space: nowrap; }
-@media (max-width: 760px) { .exam-review-upload-grid, .exam-review-window { grid-template-columns: 1fr; } .exam-review-publish { align-items: stretch; flex-direction: column; } .answer-review-pair { grid-template-columns: 1fr; } .answer-review-pair > div { min-height: 95px; } .answer-review-head { gap: .5rem; padding-inline: 1rem; } .answer-review-nav { gap: .5rem; padding-inline: .75rem; } .answer-review-nav button { min-width: 0; } }
-@media (max-width: 420px) { .answer-review-card { height: clamp(510px, 70dvh, 680px); } .answer-review-head { font-size: .74rem; } .answer-review-content { padding: 1rem; } .answer-review-flag-summary { align-items: stretch; } .answer-review-flag-trigger { width: 100%; } .answer-review-nav button { padding-inline: .55rem; font-size: .78rem; } .answer-review-nav span { font-size: .72rem; } }
+@media (max-width: 900px) { .answer-review-page { min-height: calc(100dvh - 56px - 6rem); } }
+@media (max-width: 760px) { .exam-review-upload-grid, .exam-review-window { grid-template-columns: 1fr; } .exam-review-publish { align-items: stretch; flex-direction: column; } .answer-review-page { min-height: calc(100dvh - 56px - 4.5rem); } .answer-review-card { min-height: 460px; } .answer-review-pair { grid-template-columns: 1fr; } .answer-review-pair > div { min-height: 95px; } .answer-review-head { gap: .5rem; padding-inline: 1rem; } .answer-review-nav { gap: .5rem; padding-inline: .75rem; } .answer-review-nav button { min-width: 0; } }
+@media (max-width: 420px) { .answer-review-head { font-size: .74rem; } .answer-review-content { padding: 1rem; } .answer-review-flag-summary { align-items: stretch; } .answer-review-flag-trigger { width: 100%; } .answer-review-nav button { padding-inline: .55rem; font-size: .78rem; } .answer-review-nav span { font-size: .72rem; } }
 @media print { .answer-review-card, .answer-review-exam-picker { display: none !important; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }
 

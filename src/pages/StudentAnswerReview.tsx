@@ -72,7 +72,7 @@ export function StudentAnswerReview() {
   const flag = question ? data?.flags.find((item) => item.exam_id === selected?.exam_id && item.question_id === question.id) : undefined
   const exam = data?.exams.find((item) => item.id === selected?.exam_id)
 
-  return <>
+  return <div className="answer-review-page">
     <PageHeader eyebrow="Private exam review" title="My answers and marks">Review one question at a time. Flag any answer you want rechecked and add a short reason. Empty answers and ungraded marks are shown as blank.</PageHeader>
     {!selected ? <Card><h2>No review available right now</h2><p>Your answers and marks appear here only during the access period set by an administrator.</p></Card> : <>
       {available.length > 1 ? <label className="answer-review-exam-picker">Exam<select value={selected.exam_id} onChange={(event) => { setExamId(event.target.value); setQuestionIndex(0) }}>{available.map((row) => <option key={row.exam_id} value={row.exam_id}>{data?.exams.find((item) => item.id === row.exam_id)?.title ?? 'Exam'}</option>)}</select></label> : null}
@@ -92,7 +92,6 @@ export function StudentAnswerReview() {
         </div> : <p>No saved questions were found for this review.</p>}
         <div className="answer-review-nav"><button type="button" disabled={questionIndex <= 0} onClick={() => setQuestionIndex((index) => index - 1)}><ChevronLeft size={17} aria-hidden="true" />Previous</button><span aria-live="polite">{question ? `${questionIndex + 1} of ${questions.length}` : '0 of 0'}</span><button type="button" disabled={questionIndex >= questions.length - 1} onClick={() => setQuestionIndex((index) => index + 1)}>Next<ChevronRight size={17} aria-hidden="true" /></button></div>
       </section>
-      <p className="muted-copy">This view discourages copying and printing, but no website can block screenshots or photos taken outside the browser.</p>
     </>}
-  </>
+  </div>
 }
