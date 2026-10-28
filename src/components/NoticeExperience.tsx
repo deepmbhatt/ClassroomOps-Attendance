@@ -3,7 +3,7 @@ import { Bell, Gift, X } from 'lucide-react'
 import { useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../auth'
-import { birthdayGreeting, indiaDateKey, loadOwnBirthDate, loadPortalNotices, loadUpcomingExamReminders, saveOwnBirthDate } from '../lib/portalNotices'
+import { birthdayGreeting, indiaDateKey, loadOwnBirthDate, loadPortalNotices, loadUpcomingExamReminders, normalizeBirthDate, saveOwnBirthDate } from '../lib/portalNotices'
 
 function seen(key: string) {
   try { return window.localStorage.getItem(key) === '1' } catch { return false }
@@ -44,9 +44,8 @@ export function NoticeExperience() {
   }
 
   async function saveBirthday() {
-    const value = draftBirthDate
-    const date = new Date(`${value}T00:00:00`)
-    if (!value || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value || value > indiaDateKey() || Number(indiaDateKey().slice(0, 4)) - date.getFullYear() > 120) { setError('Enter a valid birthdate.'); return }
+    const value = normalizeBirthDate(draftBirthDate)
+    if (!value) { setError('Enter a valid birthdate.'); return }
     setBusy(true)
     try { await saveOwnBirthDate(value); await client.invalidateQueries({ queryKey: ['my-birth-date', studentId] }); setError('') }
     catch (nextError) { setError(nextError instanceof Error ? nextError.message : 'Could not save birthdate.') }

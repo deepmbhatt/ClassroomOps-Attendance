@@ -73,6 +73,22 @@ export function indiaDateKey(now = new Date()): string {
   return `${year}-${month}-${day}`
 }
 
+export function normalizeBirthDate(input: string, now = new Date()): string | null {
+  const value = input.trim()
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  const dayFirst = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(value)
+  if (!iso && !dayFirst) return null
+  const year = Number(iso?.[1] ?? dayFirst?.[3])
+  const month = Number(iso?.[2] ?? dayFirst?.[2])
+  const day = Number(iso?.[3] ?? dayFirst?.[1])
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() + 1 !== month || date.getUTCDate() !== day) return null
+  const normalized = `${year.toString().padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  const today = indiaDateKey(now)
+  if (normalized > today || Number(today.slice(0, 4)) - year > 120) return null
+  return normalized
+}
+
 export function birthdayGreeting(birthDate: string, now = new Date()): string | null {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now)
   const year = Number(parts.find((part) => part.type === 'year')?.value)

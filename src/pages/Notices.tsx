@@ -3,7 +3,7 @@ import { Bell, Send, Trash2 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { useAuth } from '../auth'
 import { Card, IconButton, PageHeader } from '../components/Layout'
-import { birthdayGreeting, createPortalNotice, deletePortalNotice, indiaDateKey, loadOwnBirthDate, loadPortalNotices, loadUpcomingExamReminders, saveOwnBirthDate } from '../lib/portalNotices'
+import { birthdayGreeting, createPortalNotice, deletePortalNotice, indiaDateKey, loadOwnBirthDate, loadPortalNotices, loadUpcomingExamReminders, normalizeBirthDate, saveOwnBirthDate } from '../lib/portalNotices'
 
 export function Notices() {
   const auth = useAuth()
@@ -42,8 +42,8 @@ export function Notices() {
 
   async function updateBirthday(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const value = String(new FormData(event.currentTarget).get('birthDate') || '')
-    if (!value || value > indiaDateKey()) { setMessage('Enter a valid birthdate.'); return }
+    const value = normalizeBirthDate(String(new FormData(event.currentTarget).get('birthDate') || ''))
+    if (!value) { setMessage('Enter a valid birthdate.'); return }
     setBusy(true)
     try { await saveOwnBirthDate(value); await client.invalidateQueries({ queryKey: ['my-birth-date'] }); setMessage('Birthdate updated.') }
     catch (nextError) { setMessage(nextError instanceof Error ? nextError.message : 'Could not update birthdate.') }
