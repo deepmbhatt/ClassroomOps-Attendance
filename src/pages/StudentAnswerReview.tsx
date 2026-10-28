@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Flag } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../auth'
 import { Card, PageHeader, Spinner } from '../components/Layout'
-import { flagNativeExamReview, loadMyNativeExamReviews, type NativeExamReviewFlag } from '../lib/nativeExams'
+import { flagNativeExamReview, loadMyNativeExamReviews, loadMyRecheckOutcomes, type NativeExamReviewFlag } from '../lib/nativeExams'
 import { orderReviewQuestions } from '../lib/reviewQuestionOrder'
 import { isReviewWindowOpen } from '../lib/reviewWindow'
 
@@ -22,6 +22,7 @@ function ReviewFlagForm({ examId, questionId, existing }: { examId: string; ques
     try {
       await flagNativeExamReview(examId, questionId, clean)
       await queryClient.invalidateQueries({ queryKey: ['my-native-exam-reviews'] })
+      await queryClient.invalidateQueries({ queryKey: ['my-recheck-outcomes'] })
       setOpen(false)
     } catch (nextError) { setError(nextError instanceof Error ? nextError.message : 'Could not save your recheck request.') }
     finally { setBusy(false) }
@@ -29,10 +30,11 @@ function ReviewFlagForm({ examId, questionId, existing }: { examId: string; ques
 
   return <div className="answer-review-flag">
     <div className="answer-review-flag-summary">
-      <div className="answer-review-flag-copy"><span className="answer-review-flag-icon"><Flag size={17} aria-hidden="true" /></span><div><strong>{existing ? 'Recheck requested' : 'Want this answer rechecked?'}</strong><p>{existing ? 'Your request has been saved with this response.' : 'Flag this response and tell the examiner why.'}</p></div></div>
+      <div className="answer-review-flag-copy"><span className="answer-review-flag-icon"><Flag size={17} aria-hidden="true" /></span><div><strong>{existing ? existing.status === 'marks_changed' ? 'Marks changed after recheck' : existing.status === 'reviewed' ? 'Recheck completed' : 'Recheck pending' : 'Want this answer rechecked?'}</strong><p>{existing ? existing.status === 'pending' ? 'Your request is waiting for an examiner.' : 'The examiner has responded to your request.' : 'Flag this response and tell the examiner why.'}</p></div></div>
       {!open ? <button className="answer-review-flag-trigger" type="button" onClick={() => { setReason(existing?.reason ?? ''); setError(''); setOpen(true) }} disabled={busy}><Flag size={16} aria-hidden="true" />{existing ? 'Edit reason' : 'Flag response'}</button> : null}
     </div>
     {existing && !open ? <p className="answer-review-flag-reason"><span>Your reason</span>{existing.reason}</p> : null}
+    {existing?.admin_response ? <p className="answer-review-flag-reason"><span>Examiner response</span>{existing.admin_response}</p> : null}
     {open ? <div className="answer-review-flag-form"><label>Why should this answer be rechecked?<textarea autoFocus value={reason} maxLength={500} rows={3} onChange={(event) => setReason(event.target.value)} placeholder="Briefly explain the marking concern" /></label><small>{reason.length}/500 characters</small>{error ? <p className="form-error">{error}</p> : null}<div><button className="answer-review-flag-save" type="button" disabled={busy || !reason.trim()} onClick={() => void saveFlag()}>{busy ? 'Saving…' : existing ? 'Save reason' : 'Send recheck request'}</button><button className="answer-review-flag-cancel" type="button" disabled={busy} onClick={() => { setOpen(false); setError('') }}>Cancel</button></div></div> : null}
   </div>
 }
@@ -40,6 +42,7 @@ function ReviewFlagForm({ examId, questionId, existing }: { examId: string; ques
 export function StudentAnswerReview() {
   const auth = useAuth()
   const { data, isLoading, error } = useQuery({ queryKey: ['my-native-exam-reviews', auth.session?.user.id], queryFn: loadMyNativeExamReviews, refetchInterval: 10_000 })
+  const { data: outcomes = [] } = useQuery({ queryKey: ['my-recheck-outcomes', auth.session?.user.id], queryFn: loadMyRecheckOutcomes, refetchInterval: 30_000 })
   const [examId, setExamId] = useState('')
   const [questionIndex, setQuestionIndex] = useState(0)
   const [visible, setVisible] = useState(!document.hidden)
@@ -93,5 +96,6 @@ export function StudentAnswerReview() {
         <div className="answer-review-nav"><button type="button" disabled={questionIndex <= 0} onClick={() => setQuestionIndex((index) => index - 1)}><ChevronLeft size={17} aria-hidden="true" />Previous</button><span aria-live="polite">{question ? `${questionIndex + 1} of ${questions.length}` : '0 of 0'}</span><button type="button" disabled={questionIndex >= questions.length - 1} onClick={() => setQuestionIndex((index) => index + 1)}>Next<ChevronRight size={17} aria-hidden="true" /></button></div>
       </section>
     </>}
+    {outcomes.length ? <section className="recheck-outcomes"><h2>My recheck requests</h2><div>{outcomes.map((item, index) => <article key={`${item.exam_title}:${item.question_number}:${index}`}><strong>{item.exam_title} · Question {item.question_number}</strong><span className="status-pill neutral">{item.status.replace('_', ' ')}</span><p><b>Your reason:</b> {item.reason}</p>{item.admin_response ? <p><b>Examiner response:</b> {item.admin_response}</p> : <p>Waiting for examiner review.</p>}</article>)}</div></section> : null}
   </div>
 }

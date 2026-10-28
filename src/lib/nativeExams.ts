@@ -65,8 +65,28 @@ export type NativeExamReviewFlag = {
   student_id: string
   question_id: string
   reason: string
+  status: 'pending' | 'reviewed' | 'marks_changed'
+  admin_response: string | null
+  resolved_at: string | null
   created_at: string
   updated_at: string
+}
+
+export async function resolveNativeExamReviewFlag(input: { examId: string; studentId: string; questionId: string; status: 'reviewed' | 'marks_changed'; response: string; mark: number | null }) {
+  const { error } = await requireSupabase().rpc('native_resolve_exam_review_flag', {
+    p_exam_id: input.examId, p_student_id: input.studentId, p_question_id: input.questionId,
+    p_status: input.status, p_response: input.response, p_mark: input.mark,
+  })
+  if (error) throw error
+}
+
+export type RecheckOutcome = { exam_title: string; question_number: number; reason: string; status: 'pending' | 'reviewed' | 'marks_changed'; admin_response: string | null; resolved_at: string | null }
+
+export async function loadMyRecheckOutcomes(): Promise<RecheckOutcome[]> {
+  if (devBypass) return []
+  const { data, error } = await requireSupabase().rpc('my_exam_recheck_outcomes')
+  if (error) throw error
+  return (data ?? []) as RecheckOutcome[]
 }
 
 export async function loadNativeExamReviewAdmin(examId: string) {

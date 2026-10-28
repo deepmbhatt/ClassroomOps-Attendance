@@ -279,11 +279,11 @@ export function NativeExamStudent() {
 
   useEffect(() => {
     if (!active) return
-    const clockTimer = window.setInterval(() => setClock(Date.now()), 1000)
-    const timer = window.setInterval(() => {
+    const clockTimer = window.setInterval(() => {
+      setClock(Date.now())
       if (Date.now() >= new Date(active.deadline_at).getTime() && !pendingSubmitRef.current) queueSubmit('offline_timeout')
-      else if (!leavingRef.current) void syncPending()
     }, 1000)
+    const timer = window.setInterval(() => { if (!leavingRef.current) void syncPending() }, 15_000)
     return () => { window.clearInterval(timer); window.clearInterval(clockTimer) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.id])

@@ -1,4 +1,5 @@
 import {
+  Bell,
   Camera,
   ClipboardCheck,
   ChevronRight,
@@ -17,6 +18,7 @@ import {
 import { Children, useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth'
+import { NoticeExperience } from './NoticeExperience'
 
 const adminGroups = [
   { label: 'Overview', links: [['/', 'Dashboard', Gauge]] },
@@ -28,6 +30,7 @@ const adminGroups = [
       ['/admin/exams', 'Exam access', ShieldCheck],
       ['/admin/descriptive-exams', 'Exams & reviews', ClipboardCheck],
       ['/admin/issues', 'Student requests', MessageSquareWarning],
+      ['/admin/notices', 'Notices and wishes', Bell],
     ],
   },
   {
@@ -57,6 +60,7 @@ const studentGroups = [
       ['/student/answer-review', 'My answer reviews', FileSpreadsheet],
       ['/student/face', 'Face registration', Camera],
       ['/student/issues', 'My requests', MessageSquareWarning],
+      ['/student/notices', 'My notifications', Bell],
     ],
   },
 ] as const
@@ -72,6 +76,8 @@ const routeNames: Record<string, string> = {
   '/admin/audit': 'Audit history',
   '/admin/exams': 'Exam access control',
   '/admin/descriptive-exams': 'Exams & reviews',
+  '/admin/notices': 'Notices and wishes',
+  '/student/notices': 'My notifications',
   '/student/face': 'Face registration',
   '/student/attendance': 'My attendance',
   '/student/issues': 'My requests',
@@ -133,6 +139,7 @@ export function AppShell() {
           <div className="topbar-account"><span className="online-dot" /><span>Online</span><span className="account-avatar small">{initials}</span></div>
         </header>
         <main className="page-content"><Outlet /></main>
+        <NoticeExperience />
       </div>
     </div>
   )

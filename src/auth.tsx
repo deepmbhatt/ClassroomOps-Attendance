@@ -42,7 +42,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       p_session_key: appSessionKey(),
       p_device_label: appDeviceLabel(),
     })
-    if (error) throw new Error('Single-session security is not ready. Apply the latest database migration.')
+    if (error) throw error
   }
 
   async function currentDeviceSessionIsValid() {
@@ -98,6 +98,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
           return loadProfileForUser(data.session?.user ?? null)
         })
       })
+      .catch((error) => { setSessionMessage(error instanceof Error ? error.message : 'Could not restore your session. Try signing in again.') })
       .finally(() => setReady(true))
 
     const { data } = supabase.auth.onAuthStateChange((_event, next) => {
@@ -110,7 +111,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
       // toggling ready would unmount the editor and hide their current work.
       if (sameUser && nextUserId) return
       setReady(false)
-      void loadProfileForUser(next?.user ?? null).finally(() => setReady(true))
+      void loadProfileForUser(next?.user ?? null)
+        .catch(() => setSessionMessage('Could not load your profile. Check your connection and try again.'))
+        .finally(() => setReady(true))
     })
 
     return () => data.subscription.unsubscribe()
@@ -162,7 +165,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       let loginEmail = normalizedIdentifier
       if (!normalizedIdentifier.includes('@')) {
         const { data: resolvedEmail, error: resolveError } = await supabase.rpc('resolve_login_email', { p_identifier: normalizedIdentifier })
-        if (resolveError) throw new Error('Student ID login is not enabled yet. Apply the latest database migration.')
+        if (resolveError) throw resolveError
         if (!resolvedEmail) throw new Error('Student ID or password is incorrect.')
         loginEmail = String(resolvedEmail)
       }

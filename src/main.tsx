@@ -7,7 +7,15 @@ import { AuthProvider } from './auth'
 import './styles.css'
 import './makeover.css'
 
-const queryClient = new QueryClient()
+const queryClient = new QueryClient({ defaultOptions: { queries: {
+  staleTime: 15_000,
+  retry: (failureCount, error) => {
+    const status = typeof error === 'object' && error !== null && 'status' in error ? Number(error.status) : 0
+    return status !== 429 && failureCount < 1
+  },
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: true,
+} } })
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

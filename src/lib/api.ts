@@ -625,6 +625,18 @@ export async function createStudentIssue(input: { targetType: 'attendance' | 'ma
   if (error) throw error
 }
 
+export async function requestAttendanceCorrection(sessionId: string, message: string) {
+  if (devBypass) return
+  const { error } = await requireSupabase().rpc('request_attendance_correction', { p_session_id: sessionId, p_message: message.trim() })
+  if (error) throw error
+}
+
+export async function resolveAttendanceCorrection(issueId: string, decision: 'approved_present' | 'approved_late' | 'rejected', note: string) {
+  if (devBypass) return
+  const { error } = await requireSupabase().rpc('resolve_attendance_correction', { p_issue_id: issueId, p_decision: decision, p_note: note.trim() })
+  if (error) throw error
+}
+
 export async function updateStudentIssue(input: { issueId: string; status: 'open' | 'under_review' | 'resolved'; adminNote?: string }) {
   if (devBypass) return
   const supabase = requireSupabase()

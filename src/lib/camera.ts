@@ -39,7 +39,7 @@ export async function requestCamera(deviceId?: string) {
     return await navigator.mediaDevices.getUserMedia(preferred)
   } catch (error) {
     const name = error instanceof DOMException ? error.name : error instanceof Error ? error.name : ''
-    if (name !== 'OverconstrainedError' && name !== 'ConstraintNotSatisfiedError') {
+    if (name !== 'OverconstrainedError' && name !== 'ConstraintNotSatisfiedError' && !(deviceId && (name === 'NotFoundError' || name === 'DevicesNotFoundError'))) {
       throw new Error(cameraErrorMessage(error))
     }
     try {

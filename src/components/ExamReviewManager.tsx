@@ -1,10 +1,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { Card, IconButton } from './Layout'
 import { previewExamReviewImport, type ReviewKind } from '../lib/examReviewImport'
 import { readTabularFile } from '../lib/importValidation'
 import { reviewFlagsCsv } from '../lib/reviewFlagsCsv'
-import { importNativeExamReviews, loadNativeExamReviewAdmin, publishNativeExamReviews, type NativeQuestion } from '../lib/nativeExams'
+import { importNativeExamReviews, loadNativeExamReviewAdmin, publishNativeExamReviews, resolveNativeExamReviewFlag, type NativeQuestion } from '../lib/nativeExams'
 
 function toLocalDateTime(value: string | null) {
   if (!value) return ''
@@ -14,16 +14,21 @@ function toLocalDateTime(value: string | null) {
 
 export function ExamReviewManager({ examId, examTitle, questions, students }: { examId: string; examTitle: string; questions: NativeQuestion[]; students: Array<{ id: string; student_id?: string; full_name?: string }> }) {
   const queryClient = useQueryClient()
-  const { data, isLoading, error } = useQuery({ queryKey: ['native-exam-review-admin', examId], queryFn: () => loadNativeExamReviewAdmin(examId) })
+  const { data, isLoading, error } = useQuery({ queryKey: ['native-exam-review-admin', examId], queryFn: () => loadNativeExamReviewAdmin(examId), refetchInterval: 15_000 })
   const [answerCsv, setAnswerCsv] = useState('')
   const [marksCsv, setMarksCsv] = useState('')
   const [answerFile, setAnswerFile] = useState('')
   const [marksFile, setMarksFile] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const [editingFlag, setEditingFlag] = useState('')
+  const [flagOutcome, setFlagOutcome] = useState<'reviewed' | 'marks_changed'>('reviewed')
+  const [flagResponse, setFlagResponse] = useState('')
+  const [revisedMark, setRevisedMark] = useState('')
   const [availableFrom, setAvailableFrom] = useState('')
   const [availableUntil, setAvailableUntil] = useState('')
   const [clock, setClock] = useState(Date.now())
+  const loadedWindow = useRef(false)
   const answerPreview = useMemo(() => answerCsv ? previewExamReviewImport(answerCsv, 'answers', questions, students) : null, [answerCsv, questions, students])
   const marksPreview = useMemo(() => marksCsv ? previewExamReviewImport(marksCsv, 'marks', questions, students) : null, [marksCsv, questions, students])
   const readyCount = (data?.rows ?? []).filter((row) => Object.keys(row.answers).length === questions.length && Object.keys(row.marks).length === questions.length).length
@@ -34,7 +39,8 @@ export function ExamReviewManager({ examId, examTitle, questions, students }: { 
         : 'Live now'
 
   useEffect(() => {
-    if (!data) return
+    if (!data || loadedWindow.current) return
+    loadedWindow.current = true
     setAvailableFrom(toLocalDateTime(data.availableFrom))
     setAvailableUntil(toLocalDateTime(data.availableUntil))
   }, [data])
@@ -107,6 +113,21 @@ export function ExamReviewManager({ examId, examTitle, questions, students }: { 
     finally { setBusy(false) }
   }
 
+  async function saveFlagDecision(examStudentId: string, questionId: string) {
+    if (!flagResponse.trim() || (flagOutcome === 'marks_changed' && (revisedMark.trim() === '' || !Number.isFinite(Number(revisedMark)) || Number(revisedMark) < 0))) {
+      setMessage('Write a response and, when changing marks, enter a non-negative mark.')
+      return
+    }
+    setBusy(true)
+    try {
+      await resolveNativeExamReviewFlag({ examId, studentId: examStudentId, questionId, status: flagOutcome, response: flagResponse.trim(), mark: flagOutcome === 'marks_changed' ? Number(revisedMark) : null })
+      await queryClient.invalidateQueries({ queryKey: ['native-exam-review-admin', examId] })
+      setEditingFlag('')
+      setMessage('Recheck outcome saved for the student.')
+    } catch (nextError) { setMessage(nextError instanceof Error ? nextError.message : 'Could not save the recheck outcome.') }
+    finally { setBusy(false) }
+  }
+
   return <Card className="exam-review-manager">
     <div className="section-title"><div><p className="eyebrow">After the exam</p><h2>Publish answer reviews</h2></div><span className={`status-pill ${status === 'Live now' ? 'good' : status === 'Scheduled' ? 'warn' : 'neutral'}`}>{status}</span></div>
     <p className="muted-copy">Upload two files for this exam: one with each student's answers, one with marks. The first column must be <strong>Enrollment Number</strong>; use each question as a column heading, or simply Q1, Q2, and so on. Blank cells stay blank. CSV and Excel are supported. Keep enrollment numbers formatted as text in Excel.</p>
@@ -129,5 +150,17 @@ export function ExamReviewManager({ examId, examTitle, questions, students }: { 
     <p className="muted-copy">Leave either time blank for no bound on that side. Times use this computer's local timezone; access is enforced using server time.</p>
     <div className="exam-review-publish"><p>{isLoading ? 'Checking uploads…' : `${readyCount} ready to view${incompleteCount ? ` · ${incompleteCount} missing an answers or marks file` : ''}`}</p><IconButton className={data?.published ? '' : 'primary'} disabled={busy || isLoading || Boolean(error) || (!data?.published && (!readyCount || incompleteCount > 0))} onClick={() => void togglePublished()}>{data?.published ? 'Unpublish reviews' : availableFrom ? 'Schedule review access' : 'Publish to students'}</IconButton></div>
     <div className="exam-review-publish"><p>Recheck requests: {data?.flags.length ?? 0}. The CSV includes only flagged questions, with each student's answer, mark, and reason.</p><IconButton disabled={busy || isLoading || Boolean(error)} onClick={() => void downloadFlags()}>Download flagged reviews CSV</IconButton></div>
+    {data?.flags.length ? <div className="review-flag-list"><h3>Student recheck requests</h3>{data.flags.map((flag) => {
+      const key = `${flag.student_id}:${flag.question_id}`
+      const question = questions.find((item) => item.id === flag.question_id)
+      const student = students.find((item) => item.id === flag.student_id)
+      const review = data.rows.find((item) => item.student_id === flag.student_id)
+      return <article className="review-flag-item" key={key}>
+        <div><strong>{student?.full_name ?? student?.student_id ?? 'Student'} · Question {question?.position ?? '?'}</strong><span className="status-pill neutral">{flag.status.replace('_', ' ')}</span></div>
+        <p><b>Question:</b> {question?.prompt ?? 'Question unavailable'}</p><p><b>Answer:</b> {review?.answers[flag.question_id] || '—'}</p><p><b>Current mark:</b> {review?.marks[flag.question_id] ?? '—'}</p><p><b>Student reason:</b> {flag.reason}</p>
+        {flag.admin_response ? <p><b>Examiner response:</b> {flag.admin_response}</p> : null}
+        {editingFlag === key ? <div className="review-flag-decision"><label>Outcome<select value={flagOutcome} onChange={(event) => setFlagOutcome(event.target.value as 'reviewed' | 'marks_changed')}><option value="reviewed">Reviewed, no mark change</option><option value="marks_changed">Marks changed</option></select></label>{flagOutcome === 'marks_changed' ? <label>Revised mark<input type="number" min="0" step="any" value={revisedMark} onChange={(event) => setRevisedMark(event.target.value)} /></label> : null}<label>Response to student<textarea maxLength={1000} value={flagResponse} onChange={(event) => setFlagResponse(event.target.value)} placeholder="Explain the outcome" /></label><div><IconButton className="primary" disabled={busy} onClick={() => void saveFlagDecision(flag.student_id, flag.question_id)}>Save outcome</IconButton><IconButton disabled={busy} onClick={() => setEditingFlag('')}>Cancel</IconButton></div></div> : <IconButton disabled={busy} onClick={() => { setEditingFlag(key); setFlagOutcome(flag.status === 'marks_changed' ? 'marks_changed' : 'reviewed'); setFlagResponse(flag.admin_response ?? ''); setRevisedMark(String(review?.marks[flag.question_id] ?? '')) }}>{flag.status === 'pending' ? 'Review request' : 'Edit outcome'}</IconButton>}
+      </article>
+    })}</div> : null}
   </Card>
 }

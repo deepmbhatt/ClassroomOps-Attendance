@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FormEvent, useMemo, useState } from 'react'
 import { useAuth } from '../auth'
 import { Card, EmptyState, IconButton, PageHeader, StatusPill } from '../components/Layout'
-import { createStudentIssue, loadAppData, updateStudentIssue } from '../lib/api'
+import { createStudentIssue, loadAppData, requestAttendanceCorrection, resolveAttendanceCorrection, updateStudentIssue } from '../lib/api'
 
 export function Issues() {
   const auth = useAuth()
@@ -13,6 +13,8 @@ export function Issues() {
   const [showForm, setShowForm] = useState(false)
   const [targetType, setTargetType] = useState<'attendance' | 'mark'>('attendance')
   const [message, setMessage] = useState('')
+  const [decisions, setDecisions] = useState<Record<string, 'approved_present' | 'approved_late' | 'rejected'>>({})
+  const [notes, setNotes] = useState<Record<string, string>>({})
 
   const studentId = auth.session?.user.id
   const issues = useMemo(() => {
@@ -21,7 +23,7 @@ export function Issues() {
     return term ? rows.filter((issue) => [issue.student_name, issue.message, issue.status].some((value) => value.toLowerCase().includes(term))) : rows
   }, [auth.role, data?.issues, query, studentId])
 
-  const attendanceTargets = data?.attendance.filter((record) => record.student_id === studentId) ?? []
+  const attendanceTargets = (data?.lectures ?? []).filter((lecture) => data?.courseMemberships.some((member) => member.course_id === lecture.course_id && member.student_id === studentId)).sort((a, b) => b.started_at.localeCompare(a.started_at))
   const markTargets = data?.marks.filter((mark) => mark.student_id === studentId) ?? []
   const targets = targetType === 'attendance' ? attendanceTargets : markTargets
 
@@ -29,7 +31,8 @@ export function Issues() {
     mutationFn: async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault()
       const form = new FormData(event.currentTarget)
-      await createStudentIssue({ targetType, targetId: String(form.get('targetId')), message: String(form.get('message')) })
+      if (targetType === 'attendance') await requestAttendanceCorrection(String(form.get('targetId')), String(form.get('message')))
+      else await createStudentIssue({ targetType, targetId: String(form.get('targetId')), message: String(form.get('message')) })
     },
     onSuccess: async () => {
       setShowForm(false)
@@ -51,6 +54,16 @@ export function Issues() {
     }
   }
 
+  async function decideAttendance(issueId: string) {
+    const note = notes[issueId]?.trim() ?? ''
+    if (!note) { setMessage('Write a reason before resolving the attendance request.'); return }
+    try {
+      await resolveAttendanceCorrection(issueId, decisions[issueId] ?? 'approved_present', note)
+      setMessage('Attendance correction resolved and the student record updated if approved.')
+      await queryClient.invalidateQueries({ queryKey: ['app-data'] })
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not resolve attendance request.') }
+  }
+
   return (
     <>
       <PageHeader
@@ -68,7 +81,7 @@ export function Issues() {
         <form className="stack-form" onSubmit={(event) => createMutation.mutate(event)}>
           <div className="form-grid">
             <label>Record type<select value={targetType} onChange={(event) => setTargetType(event.target.value as 'attendance' | 'mark')}><option value="attendance">Attendance</option><option value="mark">Marks</option></select></label>
-            <label>Record<select name="targetId" required>{targets.map((target) => <option key={target.id} value={target.id}>{targetType === 'attendance' ? `${(target as typeof attendanceTargets[number]).student_name} - ${(target as typeof attendanceTargets[number]).status}` : `Assessment mark - ${(target as typeof markTargets[number]).value}`}</option>)}</select></label>
+            <label>{targetType === 'attendance' ? 'Session' : 'Record'}<select name="targetId" required>{targetType === 'attendance' ? attendanceTargets.map((target) => <option key={target.id} value={target.id}>{target.title} · {new Date(target.started_at).toLocaleString('en-IN')} · {data?.attendance.find((record) => record.lecture_id === target.id && record.student_id === studentId)?.status ?? 'No mark'}</option>) : markTargets.map((target) => <option key={target.id} value={target.id}>Assessment mark · {target.value}</option>)}</select></label>
           </div>
           <label>Explain the correction<textarea name="message" required minLength={10} placeholder="Describe what is incorrect and what you expected." /></label>
           <IconButton className="primary" type="submit" disabled={!targets.length || createMutation.isPending}><Send size={16} />Submit request</IconButton>
@@ -86,12 +99,12 @@ export function Issues() {
           <tbody>{issues.map((issue) => (
             <tr key={issue.id}>
               <td><strong>{issue.student_name}</strong></td>
-              <td>{issue.target_type}</td>
+              <td>{issue.session_id ? `Attendance · ${data?.lectures.find((item) => item.id === issue.session_id)?.title ?? 'Session'}` : issue.target_type}</td>
               <td>{new Date(issue.created_at).toLocaleDateString('en-IN')}</td>
               <td><StatusPill tone={issue.status === 'resolved' ? 'good' : issue.status === 'under_review' ? 'warn' : 'neutral'}>{issue.status.replace('_', ' ')}</StatusPill></td>
               <td>{issue.message}</td>
-              <td>{issue.admin_note ?? '-'}</td>
-              <td>{auth.role === 'admin' && issue.status !== 'resolved' ? <IconButton onClick={() => void resolve(issue.id)}><Check size={16} />Resolve</IconButton> : <small>{issue.status === 'resolved' ? 'Complete' : 'Waiting'}</small>}</td>
+              <td>{issue.decision ? `${issue.decision.replace('_', ' ')} · ` : ''}{issue.admin_note ?? '—'}</td>
+              <td>{auth.role === 'admin' && issue.status !== 'resolved' ? issue.session_id ? <div className="issue-decision"><select aria-label="Attendance decision" value={decisions[issue.id] ?? 'approved_present'} onChange={(event) => setDecisions({ ...decisions, [issue.id]: event.target.value as 'approved_present' | 'approved_late' | 'rejected' })}><option value="approved_present">Approve present</option><option value="approved_late">Approve late</option><option value="rejected">Reject</option></select><input aria-label="Reason for student" maxLength={1000} value={notes[issue.id] ?? ''} onChange={(event) => setNotes({ ...notes, [issue.id]: event.target.value })} placeholder="Reason for student" /><IconButton onClick={() => void decideAttendance(issue.id)}><Check size={16} />Save decision</IconButton></div> : <IconButton onClick={() => void resolve(issue.id)}><Check size={16} />Resolve</IconButton> : <small>{issue.status === 'resolved' ? 'Complete' : 'Waiting'}</small>}</td>
             </tr>
           ))}</tbody>
         </table></div> : <EmptyState title={query ? 'No matching requests' : 'No requests yet'} body={query ? 'Try a different search.' : auth.role === 'admin' ? 'Student questions will appear here.' : 'Use New request when you need an attendance or marks correction.'} icon={<MessageSquarePlus size={22} />} />}

@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChangeEvent, useEffect, useState } from 'react'
+import { ChangeEvent, useEffect, useRef, useState } from 'react'
 import { useAuth } from '../auth'
 import { Card, IconButton, PageHeader, Spinner } from '../components/Layout'
 import { ExamReviewManager } from '../components/ExamReviewManager'
@@ -30,8 +30,8 @@ function csvCell(value: unknown) {
 export function NativeExamAdmin() {
   const auth = useAuth()
   const queryClient = useQueryClient()
-  const { data: app, isLoading: appLoading } = useQuery({ queryKey: ['app-data'], queryFn: loadAppData })
-  const { data, isLoading, error } = useQuery({ queryKey: ['native-exams', auth.session?.user.id, auth.role], queryFn: loadNativeExams })
+  const { data: app, isLoading: appLoading } = useQuery({ queryKey: ['app-data'], queryFn: loadAppData, refetchInterval: 15_000 })
+  const { data, isLoading, error } = useQuery({ queryKey: ['native-exams', auth.session?.user.id, auth.role], queryFn: loadNativeExams, refetchInterval: 10_000 })
   const [selectedId, setSelectedId] = useState('new')
   const [edit, setEdit] = useState(emptyExam)
   const [questions, setQuestions] = useState<QuestionEdit[]>([emptyQuestion()])
@@ -40,6 +40,7 @@ export function NativeExamAdmin() {
   const [studentSearch, setStudentSearch] = useState('')
   const [shownCodes, setShownCodes] = useState<Record<string, string>>({})
   const [deleteConfirm, setDeleteConfirm] = useState('')
+  const hydratedExamId = useRef('')
 
   const selected = data?.exams.find((exam) => exam.id === selectedId)
   const savedQuestions = (data?.questions ?? []).filter((question) => question.exam_id === selectedId)
@@ -56,9 +57,22 @@ export function NativeExamAdmin() {
   const visibleStudents = eligibleStudents.filter((profile) =>
     `${profile.full_name} ${profile.student_id ?? ''} ${profile.email}`.toLowerCase().includes(studentSearch.toLowerCase()),
   )
+  const supportStatus = (studentId: string) => {
+    const attempt = attempts.find((item) => item.student_id === studentId)
+    if (attempt?.status === 'submitted' || attempt?.status === 'auto_submitted') return 'Submitted'
+    if (attempt?.status === 'in_progress') return Date.now() - new Date(attempt.last_seen_at).getTime() > 60_000 ? 'Connection uncertain' : 'In progress'
+    const allowed = selected?.allow_without_attendance || (selected?.attendance_session_id ? faceApprovedIds.has(studentId) : access.some((item) => item.student_id === studentId))
+    return allowed ? 'Eligible' : 'Blocked by attendance'
+  }
+  const supportCounts = eligibleStudents.reduce((counts, student) => {
+    const status = supportStatus(student.id)
+    counts[status] = (counts[status] ?? 0) + 1
+    return counts
+  }, {} as Record<string, number>)
 
   useEffect(() => {
-    if (!selected) return
+    if (!selected || hydratedExamId.current === selected.id) return
+    hydratedExamId.current = selected.id
     setEdit({
       title: selected.title, course_id: selected.course_id, instructions: selected.instructions ?? '',
       starts_at: localDate(selected.starts_at), ends_at: localDate(selected.ends_at),
@@ -74,6 +88,7 @@ export function NativeExamAdmin() {
   function choose(event: ChangeEvent<HTMLSelectElement>) {
     const id = event.target.value
     setSelectedId(id)
+    hydratedExamId.current = ''
     setMessage('')
     setShownCodes({})
     setDeleteConfirm('')
@@ -257,12 +272,14 @@ export function NativeExamAdmin() {
     </Card>
     {selected && !selected.review_only ? <Card>
       <div className="section-title"><div><p className="eyebrow">Access and responses</p><h2>Exam eligibility</h2></div><IconButton onClick={() => void exportCsv()} disabled={busy}>Download combined CSV</IconButton></div>
+      <div className="exam-support-summary" aria-label="Live exam support dashboard">{['Eligible', 'In progress', 'Connection uncertain', 'Submitted', 'Blocked by attendance'].map((status) => <div key={status}><strong>{supportCounts[status] ?? 0}</strong><span>{status}</span></div>)}</div>
+      <p className="muted-copy">Updates every 10–15 seconds. “Connection uncertain” means the server has not seen the attempt for over a minute; it does not prove the student lost internet.</p>
       <p className="muted-copy">{selected.allow_without_attendance ? 'All approved students enrolled in this course can start during the exam window, regardless of attendance.' : 'Face-verified present or late attendance in the selected session grants access automatically. A four-digit code appears at the attendance terminal when code checks are enabled.'} Each student gets one attempt.</p>
       <label>Find student<input value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="Name or student ID" /></label>
-      <div className="table-scroll"><table><thead><tr><th>Student</th><th>Access</th><th>Attempt</th><th>Action</th></tr></thead><tbody>{visibleStudents.map((student) => {
+      <div className="table-scroll"><table><thead><tr><th>Student</th><th>Access</th><th>Live status</th><th>Last seen</th><th>Action</th></tr></thead><tbody>{visibleStudents.map((student) => {
         const granted = selected.allow_without_attendance || (selected.attendance_session_id ? faceApprovedIds.has(student.id) : access.some((item) => item.student_id === student.id))
         const attempt = attempts.find((item) => item.student_id === student.id)
-        return <tr key={student.id}><td>{student.full_name}<small>{student.student_id}</small></td><td>{selected.allow_without_attendance ? 'Enrolled' : granted ? 'Face verified' : 'Waiting for face attendance'}</td><td>{attempt?.status ?? 'Not started'}</td><td>{selected.allow_without_attendance ? '—' : selected.attendance_session_id ? granted && selected.code_mode !== 'none' ? <button onClick={() => void getNativeFaceCode(selected.attendance_session_id!, student.id).then((code) => setShownCodes((current) => ({ ...current, [student.id]: code ?? 'Not issued' }))).catch((nextError) => setMessage(nextError instanceof Error ? nextError.message : 'Could not load code'))}>{shownCodes[student.id] ?? 'Show code'}</button> : '—' : <button disabled={busy} onClick={() => void approve(student.id, !granted)}>{granted ? 'Remove access' : 'Approve'}</button>}</td></tr>
+        return <tr key={student.id}><td>{student.full_name}<small>{student.student_id}</small></td><td>{selected.allow_without_attendance ? 'Enrolled' : granted ? 'Face verified' : 'Waiting for face attendance'}</td><td><span className="status-pill neutral">{supportStatus(student.id)}</span></td><td>{attempt ? new Date(attempt.last_seen_at).toLocaleTimeString('en-IN') : '—'}</td><td>{selected.allow_without_attendance ? '—' : selected.attendance_session_id ? granted && selected.code_mode !== 'none' ? <button onClick={() => void getNativeFaceCode(selected.attendance_session_id!, student.id).then((code) => setShownCodes((current) => ({ ...current, [student.id]: code ?? 'Not issued' }))).catch((nextError) => setMessage(nextError instanceof Error ? nextError.message : 'Could not load code'))}>{shownCodes[student.id] ?? 'Show code'}</button> : '—' : <button disabled={busy} onClick={() => void approve(student.id, !granted)}>{granted ? 'Remove access' : 'Approve'}</button>}</td></tr>
       })}</tbody></table></div>
     </Card> : null}
     {selected && auth.role === 'admin' ? <ExamReviewManager key={selected.id} examId={selected.id} examTitle={selected.title} questions={savedQuestions} students={eligibleStudents} /> : null}

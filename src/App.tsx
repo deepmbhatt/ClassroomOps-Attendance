@@ -4,6 +4,7 @@ import { AppShell, Spinner } from './components/Layout'
 import { AdminExams } from './pages/AdminExams'
 import { NativeExamAdmin } from './pages/NativeExamAdmin'
 import { NativeExamStudent } from './pages/NativeExamStudent'
+import { Notices } from './pages/Notices'
 import { StudentAnswerReview } from './pages/StudentAnswerReview'
 import { AdminAttendanceReview } from './pages/AdminAttendanceReview'
 import { AdminStudents } from './pages/AdminStudents'
@@ -57,12 +58,14 @@ export default function App() {
         <Route path="/admin/exams" element={<RequireRole roles={['admin', 'pseudo_admin']}><AdminExams /></RequireRole>} />
         <Route path="/admin/descriptive-exams" element={<RequireRole roles={['admin', 'pseudo_admin']}><NativeExamAdmin /></RequireRole>} />
         <Route path="/admin/audit" element={<RequireRole roles={['admin', 'pseudo_admin']}><Audit /></RequireRole>} />
+        <Route path="/admin/notices" element={<RequireRole roles={['admin']}><Notices /></RequireRole>} />
         <Route path="/student/face" element={<RequireRole roles={['student']}><FaceRegistration /></RequireRole>} />
         <Route path="/student/attendance" element={<RequireRole roles={['student']}><StudentAttendance /></RequireRole>} />
         <Route path="/student/exams" element={<Navigate to="/student/descriptive-exams" replace />} />
         <Route path="/student/descriptive-exams" element={<RequireRole roles={['student']}><NativeExamStudent /></RequireRole>} />
         <Route path="/student/answer-review" element={<RequireRole roles={['student']}><StudentAnswerReview /></RequireRole>} />
         <Route path="/student/issues" element={<RequireRole roles={['student']}><Issues /></RequireRole>} />
+        <Route path="/student/notices" element={<RequireRole roles={['student']}><Notices /></RequireRole>} />
       </Route>
     </Routes>
   )

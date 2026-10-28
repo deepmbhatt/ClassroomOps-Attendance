@@ -28,6 +28,7 @@ export interface Profile {
   approval_status?: 'pending' | 'approved' | 'rejected'
   approved_at?: string
   approved_by?: string
+  birth_date?: string | null
   deleted_at?: string
   created_at?: string
 }
@@ -145,6 +146,8 @@ export interface StudentIssue {
   student_name: string
   target_type: 'attendance' | 'mark'
   target_id: string
+  session_id?: string | null
+  decision?: 'approved_present' | 'approved_late' | 'rejected' | null
   status: IssueStatus
   message: string
   admin_note?: string

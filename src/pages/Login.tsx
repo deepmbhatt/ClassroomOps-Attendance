@@ -1,8 +1,9 @@
 import { ArrowLeft, Eye, EyeOff, LogIn, Mail, ShieldCheck, UserPlus } from 'lucide-react'
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth'
 import { devBypass, supabaseConfigured } from '../lib/supabase'
+import { loginDiagnostic } from '../lib/loginDiagnostics'
 
 export function Login() {
   const auth = useAuth()
@@ -12,11 +13,22 @@ export function Login() {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [diagnosticCode, setDiagnosticCode] = useState('')
+  const [retryAt, setRetryAt] = useState(0)
+  const [clock, setClock] = useState(Date.now())
+  const retrySeconds = Math.max(0, Math.ceil((retryAt - clock) / 1000))
+
+  useEffect(() => {
+    if (!retryAt) return
+    const timer = window.setInterval(() => setClock(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [retryAt])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
     setError('')
+    setDiagnosticCode('')
     setMessage('')
     setPending(true)
     try {
@@ -38,7 +50,10 @@ export function Login() {
       }
       navigate('/')
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : 'Authentication failed')
+      const diagnostic = loginDiagnostic(nextError)
+      setError(diagnostic.message)
+      setDiagnosticCode(`${diagnostic.code}-${Date.now().toString(36).slice(-5).toUpperCase()}`)
+      setRetryAt(diagnostic.retrySeconds ? Date.now() + diagnostic.retrySeconds * 1000 : 0)
     } finally {
       setPending(false)
     }
@@ -88,13 +103,13 @@ export function Login() {
         {mode !== 'forgot' ? <label>Password<span className="password-field"><input name="password" type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required minLength={8} placeholder="At least 8 characters" /><button type="button" title={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword((shown) => !shown)}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span></label> : null}
 
         {!supabaseConfigured && !devBypass ? <p className="form-error">Deployment configuration is incomplete. Add the Supabase URL and anon key, then redeploy.</p> : null}
-        {error ? <p className="form-error">{error}</p> : null}
-        {auth.sessionMessage ? <p className="form-error">{auth.sessionMessage}</p> : null}
+        {error ? <p className="form-error" role="alert">{error}<small className="login-diagnostic">Diagnostic reference: {diagnosticCode}</small></p> : null}
+        {auth.sessionMessage ? <p className="form-error">{auth.sessionMessage.startsWith('You were signed out') ? auth.sessionMessage : loginDiagnostic(new Error(auth.sessionMessage)).message}</p> : null}
         {message ? <p className="notice"><Mail size={16} />{message}</p> : null}
 
-        <button className="icon-text primary" type="submit" disabled={pending}>
+        <button className="icon-text primary" type="submit" disabled={pending || retrySeconds > 0}>
           {mode === 'forgot' ? <Mail size={17} /> : mode === 'login' ? <LogIn size={17} /> : <UserPlus size={17} />}
-          {pending ? 'Please wait...' : mode === 'forgot' ? 'Send reset link' : mode === 'login' ? 'Sign in' : 'Create account'}
+          {pending ? 'Please wait...' : retrySeconds ? `Try again in ${retrySeconds}s` : mode === 'forgot' ? 'Send reset link' : mode === 'login' ? error ? 'Try signing in again' : 'Sign in' : 'Create account'}
         </button>
 
         {mode === 'login' ? <div className="login-help">
