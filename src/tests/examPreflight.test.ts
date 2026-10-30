@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { isMobileExamDevice, minimumExamKbps } from '../lib/examPreflight'
 
 describe('exam preflight', () => {
-  it('requires at least 500 kilobits per second', () => {
-    expect(minimumExamKbps).toBe(500)
+  it('requires at least 250 kilobits per second', () => {
+    expect(minimumExamKbps).toBe(250)
   })
 
   it('rejects common phone and tablet signatures', () => {

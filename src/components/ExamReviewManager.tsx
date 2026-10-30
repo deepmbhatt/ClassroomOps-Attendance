@@ -4,6 +4,7 @@ import { Card, IconButton } from './Layout'
 import { previewExamReviewImport, type ReviewKind } from '../lib/examReviewImport'
 import { readTabularFile } from '../lib/importValidation'
 import { reviewFlagsCsv } from '../lib/reviewFlagsCsv'
+import { serviceErrorMessage } from '../lib/serviceError'
 import { importNativeExamReviews, loadNativeExamReviewAdmin, publishNativeExamReviews, resolveNativeExamReviewFlag, type NativeQuestion } from '../lib/nativeExams'
 
 function toLocalDateTime(value: string | null) {
@@ -131,7 +132,7 @@ export function ExamReviewManager({ examId, examTitle, questions, students }: { 
   return <Card className="exam-review-manager">
     <div className="section-title"><div><p className="eyebrow">After the exam</p><h2>Publish answer reviews</h2></div><span className={`status-pill ${status === 'Live now' ? 'good' : status === 'Scheduled' ? 'warn' : 'neutral'}`}>{status}</span></div>
     <p className="muted-copy">Upload two files for this exam: one with each student's answers, one with marks. The first column must be <strong>Enrollment Number</strong>; use each question as a column heading, or simply Q1, Q2, and so on. Blank cells stay blank. CSV and Excel are supported. Keep enrollment numbers formatted as text in Excel.</p>
-    {error ? <p className="form-error">Could not load reviews. Apply the answer-review migration first.</p> : null}
+    {error ? <p className="form-error">{serviceErrorMessage(error, 'Review loading')}</p> : null}
     {message ? <p className="notice">{message}</p> : null}
     <div className="exam-review-upload-grid">
       {(['answers', 'marks'] as const).map((kind) => {

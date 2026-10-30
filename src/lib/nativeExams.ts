@@ -131,10 +131,9 @@ export async function flagNativeExamReview(examId: string, questionId: string, r
 
 export async function loadMyNativeExamReviews() {
   const client = requireSupabase()
-  const { data: user, error: userError } = await client.auth.getUser()
-  if (userError) throw userError
-  if (!user.user) throw new Error('Sign in to view your answers.')
-  const { data: reviews, error: reviewError } = await client.from('native_exam_reviews').select('*').eq('student_id', user.user.id)
+  const { data: user } = await client.auth.getSession()
+  if (!user.session?.user) throw new Error('Sign in to view your answers.')
+  const { data: reviews, error: reviewError } = await client.from('native_exam_reviews').select('*').eq('student_id', user.session.user.id)
   if (reviewError) throw reviewError
   const rows = (reviews ?? []) as NativeExamReview[]
   if (!rows.length) return { reviews: rows, exams: [] as NativeExam[], questions: [] as NativeQuestion[], windows: [] as NativeExamReviewWindow[], flags: [] as NativeExamReviewFlag[] }
@@ -143,7 +142,7 @@ export async function loadMyNativeExamReviews() {
     client.from('native_exams').select('*').in('id', examIds),
     client.from('native_exam_questions').select('*').in('exam_id', examIds).order('position'),
     client.from('native_exam_review_publications').select('exam_id, available_until').in('exam_id', examIds),
-    client.from('native_exam_review_flags').select('*').eq('student_id', user.user.id).in('exam_id', examIds),
+    client.from('native_exam_review_flags').select('*').eq('student_id', user.session.user.id).in('exam_id', examIds),
   ])
   if (exams.error) throw exams.error
   if (questions.error) throw questions.error

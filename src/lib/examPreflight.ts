@@ -1,4 +1,4 @@
-export const minimumExamKbps = 500
+export const minimumExamKbps = 250
 
 export function isMobileExamDevice(userAgent = navigator.userAgent, touchPoints = navigator.maxTouchPoints) {
   return /Android|iPhone|iPad|iPod|Mobile|Tablet|Silk|Kindle/i.test(userAgent)

@@ -4,11 +4,12 @@ import { useState, type FormEvent } from 'react'
 import { useAuth } from '../auth'
 import { Card, IconButton, PageHeader } from '../components/Layout'
 import { birthdayGreeting, createPortalNotice, deletePortalNotice, indiaDateKey, loadOwnBirthDate, loadPortalNotices, loadUpcomingExamReminders, normalizeBirthDate, saveOwnBirthDate } from '../lib/portalNotices'
+import { serviceErrorMessage } from '../lib/serviceError'
 
 export function Notices() {
   const auth = useAuth()
   const client = useQueryClient()
-  const { data: notices = [], error } = useQuery({ queryKey: ['portal-notices'], queryFn: loadPortalNotices, refetchInterval: 60_000 })
+  const { data: notices = [], error, isFetching, refetch } = useQuery({ queryKey: ['portal-notices'], queryFn: loadPortalNotices, refetchInterval: 60_000 })
   const { data: reminders = [] } = useQuery({ queryKey: ['exam-reminders'], queryFn: loadUpcomingExamReminders, enabled: auth.role === 'student', refetchInterval: 60_000 })
   const { data: birthDate } = useQuery({ queryKey: ['my-birth-date', auth.session?.user.id], queryFn: loadOwnBirthDate, enabled: auth.role === 'student' })
   const birthdayMessage = birthDate ? birthdayGreeting(birthDate) : null
@@ -53,7 +54,7 @@ export function Notices() {
   return <>
     <PageHeader eyebrow="Course updates" title={auth.role === 'admin' ? 'Notices and wishes' : 'My notifications'}>{auth.role === 'admin' ? 'Post a message now or schedule it for a festival or other occasion.' : 'Course notices, exam reminders, and birthday wishes appear here.'}</PageHeader>
     {message ? <p className="notice">{message}</p> : null}
-    {error ? <p className="form-error">Could not load notices. Retry after applying the latest database migration.</p> : null}
+    {error ? <div className="form-error" role="alert"><p>{serviceErrorMessage(error, 'Notice loading')}</p><button type="button" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? 'Retrying…' : 'Retry notices'}</button></div> : null}
     {auth.role === 'admin' ? <Card><h2>New notice</h2><form className="stack-form" onSubmit={(event) => void publish(event)}><label>Title<input name="title" required maxLength={120} placeholder="Happy Diwali" /></label><label>Message<textarea name="body" required maxLength={1000} placeholder="Write your message to students" /></label><div className="form-grid"><label>Show from<input name="startsAt" type="datetime-local" /></label><label>Show until (optional)<input name="endsAt" type="datetime-local" /></label></div><label className="notice-checkbox"><input type="checkbox" name="showPopup" defaultChecked />Show as a popup once per student</label><IconButton className="primary" type="submit" disabled={busy}><Send size={16} />Save notice</IconButton></form></Card> : null}
     {auth.role === 'student' && reminders.length ? <Card><h2>Upcoming exams</h2>{reminders.map((exam) => <p key={exam.id}><strong>{exam.title}</strong> · {new Date(exam.starts_at).toLocaleString('en-IN')}</p>)}</Card> : null}
     {birthdayMessage ? <Card><h2>Happy birthday!</h2><p>{birthdayMessage}</p></Card> : null}

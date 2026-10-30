@@ -6,6 +6,7 @@ import { Card, PageHeader, Spinner } from '../components/Layout'
 import { flagNativeExamReview, loadMyNativeExamReviews, loadMyRecheckOutcomes, type NativeExamReviewFlag } from '../lib/nativeExams'
 import { orderReviewQuestions } from '../lib/reviewQuestionOrder'
 import { isReviewWindowOpen } from '../lib/reviewWindow'
+import { serviceErrorMessage } from '../lib/serviceError'
 
 function ReviewFlagForm({ examId, questionId, existing }: { examId: string; questionId: string; existing?: NativeExamReviewFlag }) {
   const queryClient = useQueryClient()
@@ -41,7 +42,7 @@ function ReviewFlagForm({ examId, questionId, existing }: { examId: string; ques
 
 export function StudentAnswerReview() {
   const auth = useAuth()
-  const { data, isLoading, error } = useQuery({ queryKey: ['my-native-exam-reviews', auth.session?.user.id], queryFn: loadMyNativeExamReviews, refetchInterval: 10_000 })
+  const { data, isLoading, isFetching, error, refetch } = useQuery({ queryKey: ['my-native-exam-reviews', auth.session?.user.id], queryFn: loadMyNativeExamReviews, refetchInterval: 30_000 })
   const { data: outcomes = [] } = useQuery({ queryKey: ['my-recheck-outcomes', auth.session?.user.id], queryFn: loadMyRecheckOutcomes, refetchInterval: 30_000 })
   const [examId, setExamId] = useState('')
   const [questionIndex, setQuestionIndex] = useState(0)
@@ -62,7 +63,7 @@ export function StudentAnswerReview() {
   }, [])
 
   if (isLoading) return <Spinner />
-  if (error) return <Card><p className="form-error">Could not load answer reviews. Ask staff to apply the latest Supabase migration.</p></Card>
+  if (error) return <Card><p className="form-error" role="alert">{serviceErrorMessage(error, 'Answer review loading')}</p><button type="button" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? 'Retrying…' : 'Retry loading reviews'}</button></Card>
   const available = (data?.reviews ?? []).filter((row) => {
     const accessWindow = data?.windows.find((item) => item.exam_id === row.exam_id)
     return accessWindow && isReviewWindowOpen(null, accessWindow.available_until, clock)

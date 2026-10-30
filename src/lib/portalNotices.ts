@@ -37,9 +37,9 @@ export async function deletePortalNotice(id: string) {
 export async function loadOwnBirthDate(): Promise<string | null> {
   if (devBypass) return null
   const client = requireSupabase()
-  const { data: auth } = await client.auth.getUser()
-  if (!auth.user) return null
-  const { data, error } = await client.from('profiles').select('birth_date').eq('id', auth.user.id).single()
+  const { data: auth } = await client.auth.getSession()
+  if (!auth.session?.user) return null
+  const { data, error } = await client.from('profiles').select('birth_date').eq('id', auth.session.user.id).single()
   if (error) throw error
   return data?.birth_date ?? null
 }
@@ -47,9 +47,9 @@ export async function loadOwnBirthDate(): Promise<string | null> {
 export async function saveOwnBirthDate(value: string) {
   if (devBypass) return
   const client = requireSupabase()
-  const { data: auth } = await client.auth.getUser()
-  if (!auth.user) throw new Error('Sign in again to save your birthdate.')
-  const { error } = await client.from('profiles').update({ birth_date: value }).eq('id', auth.user.id)
+  const { data: auth } = await client.auth.getSession()
+  if (!auth.session?.user) throw new Error('Sign in again to save your birthdate.')
+  const { error } = await client.from('profiles').update({ birth_date: value }).eq('id', auth.session.user.id)
   if (error) throw error
 }
 

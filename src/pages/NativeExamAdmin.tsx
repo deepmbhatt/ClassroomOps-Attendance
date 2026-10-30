@@ -7,6 +7,7 @@ import { loadAppData } from '../lib/api'
 import { readTabularFile } from '../lib/importValidation'
 import { importExamQuestions } from '../lib/examQuestionImport'
 import { pastQuestionHeadings } from '../lib/pastQuestionHeadings'
+import { serviceErrorMessage } from '../lib/serviceError'
 import { deleteNativeExam, getNativeFaceCode, loadNativeExamReviewAdmin, loadNativeExams, saveNativeExam, saveNativeQuestions, setNativeAccess, type NativeExam, type NativeQuestion } from '../lib/nativeExams'
 
 type QuestionEdit = { id?: string; prompt: string; question_type: NativeQuestion['question_type']; options: string[] }
@@ -232,7 +233,7 @@ export function NativeExamAdmin() {
   }
 
   if (isLoading || appLoading) return <Spinner />
-  if (error) return <p className="form-error">{error instanceof Error ? error.message : 'Could not load descriptive exams.'} Apply the new Supabase migration first.</p>
+  if (error) return <p className="form-error">{serviceErrorMessage(error, 'Exam administration')}</p>
 
   return <>
     <PageHeader eyebrow="Assessment workspace" title="Exams and answer reviews">Create an in-app exam or publish answers and marks from a past exam held elsewhere.</PageHeader>
